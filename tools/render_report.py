@@ -73,19 +73,23 @@ def main():
     space = read_json(output_dir / "space.json", {})
     hardware = read_json(output_dir / "hardware.json", {})
     variants = summary.get("variants", {})
+    correct_variants = {
+        variant: stats for variant, stats in variants.items() if stats.get("correct")
+    }
     default_logical_mib = summary.get("logical_bytes_per_launch", 0) / (1024 * 1024)
 
     time_items = [
-        (variant, stats.get("median_ms")) for variant, stats in variants.items()
+        (variant, stats.get("median_ms"))
+        for variant, stats in correct_variants.items()
     ]
     speed_items = [
         (variant, stats.get("speedup_vs_original_row_stride"))
-        for variant, stats in variants.items()
+        for variant, stats in correct_variants.items()
         if variant != "original_row_stride"
     ]
     bandwidth_items = [
         (variant, stats.get("effective_bandwidth_gbps"))
-        for variant, stats in variants.items()
+        for variant, stats in correct_variants.items()
     ]
 
     ptxas = space.get("ptxas", {}).get("variants", {})
@@ -178,6 +182,7 @@ def main():
         ["Bottleneck Hint", fmt(classification.get("bottleneck_hint"))],
         ["Default / FP16 Output", fmt(speedups.get("default_vs_fp16_output"), 2) + "x" if speedups.get("default_vs_fp16_output") else "n/a"],
         ["FP16 / Compact x/w", fmt(speedups.get("fp16_output_vs_compact_xw"), 2) + "x" if speedups.get("fp16_output_vs_compact_xw") else "n/a"],
+        ["Compact x/w / U16 x/w", fmt(speedups.get("compact_xw_vs_compact_u16_xw"), 2) + "x" if speedups.get("compact_xw_vs_compact_u16_xw") else "n/a"],
         ["Scaling Status", fmt(scaling.get("status"))],
         ["Harness Memory", fmt_unit(scaling.get("single_gpu_harness_mib"), " MiB", 2)],
     ]

@@ -135,9 +135,9 @@ def build_memory_models(dimx, dimy):
     return [
         {
             "name": "current_harness_device_allocations",
-            "bytes_per_element": 8.0,
-            "total_bytes": elements * 8,
-            "note": "Current benchmark allocates float input/output plus FP16 and compact x/w scratch buffers.",
+            "bytes_per_element": 10.0,
+            "total_bytes": elements * 10,
+            "note": "Current benchmark allocates float input/output plus FP16 output and float, FP16, and u16 compact x/w scratch buffers.",
         },
         {
             "name": "float_inplace_default",
@@ -156,6 +156,12 @@ def build_memory_models(dimx, dimy):
             "bytes_per_element": 4.0,
             "total_bytes": elements * 4,
             "note": "Upper-bound compact consumer: compact x/w input plus FP16 output.",
+        },
+        {
+            "name": "compact_half_or_u16_xw_input_fp16_output",
+            "bytes_per_element": 3.0,
+            "total_bytes": elements * 3,
+            "note": "Quantized compact consumer: two 16-bit x/w inputs per four outputs plus FP16 output.",
         },
     ]
 
@@ -269,6 +275,7 @@ def classify(summary, space):
     )
     half = variants.get("vector4_affine_half_output_sparse_experimental", {})
     compact = variants.get("compact_xw_affine_half_output_experimental", {})
+    compact_u16 = variants.get("compact_u16_xw_affine_half_output_experimental", {})
 
     notes = []
     bottleneck = "unknown"
@@ -301,6 +308,7 @@ def classify(summary, space):
     poly_speedup = speedup(default, poly)
     half_speedup = speedup(default, half)
     compact_speedup = speedup(half or default, compact)
+    compact_u16_speedup = speedup(compact, compact_u16)
 
     if poly_speedup and poly_speedup < 1.05:
         notes.append(
@@ -316,6 +324,11 @@ def classify(summary, space):
         notes.append(
             "Compact x/w input gives a large kernel-side win; verify producer "
             "layout or packing amortization before treating it as end-to-end."
+        )
+    if compact_u16_speedup and compact_u16_speedup >= 1.05:
+        notes.append(
+            "U16 fixed-point x/w input improves over FP32 compact x/w on this "
+            "memory-bound run while preserving the benchmark tolerance."
         )
     if occupancy_pct is not None and occupancy_pct < 50:
         notes.append(
@@ -334,6 +347,7 @@ def classify(summary, space):
             "default_vs_polynomial_or_affine": poly_speedup,
             "default_vs_fp16_output": half_speedup,
             "fp16_output_vs_compact_xw": compact_speedup,
+            "compact_xw_vs_compact_u16_xw": compact_u16_speedup,
         },
         "notes": notes,
     }

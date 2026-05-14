@@ -185,7 +185,9 @@ Measured on the local NVIDIA RTX PRO 6000 Blackwell Server Edition
 | Fixed-range polynomial / affine family | float in/out | yes | 0.309-0.310 ms |
 | FP16-output affine family | float in, half out | yes | 0.257 ms |
 | Compact `x/w` input + FP16 output | compact float2 in, half out | yes | 0.169 ms |
+| Compact U16 `x/w` input + FP16 output | compact ushort2 in, half out | yes | 0.124 ms |
 | GPU pack + compact `x/w` pipeline | float in, half out | yes | 0.445 ms |
+| Compact FP16 `x/w` input boundary | compact half2 in, half out | expected no | 0.121 ms |
 | BF16-output affine boundary | float in, BF16 out | expected no | 0.257 ms |
 
 The durable hypotheses, profiler mechanisms, and stop/revisit decisions live in
@@ -209,13 +211,15 @@ and the practical takeaway.
 | Fixed-range quadratic polynomial can remove transcendental calls | `0.309-0.310 ms`, correctness passes | SFU pressure disappears, but Nsight still shows about `91%` DRAM throughput and only about `48%` SM throughput | Math is no longer the wall; global writeback dominates |
 | Sparse polynomial / sparse affine can exploit the narrow input interval | `0.309-0.310 ms`, correctness passes | Offline fit shows `cos`/`sin` can be constants and `log`/`tan` can be affine; sparse affine uses about `22` registers/thread | Good documentation of the benchmark-specialized bound, but still tied with default |
 | FP16 output can reduce the writeback wall if the ABI can change | `0.2572-0.2576 ms`, correctness passes; packed 64-bit store sampled at `0.2573 ms` | Nsight on the sparse FP16 kernel reports `93.84%` DRAM throughput, `5.37%` SM throughput, and the same L1 load-sector footprint as the loaded variant | This is the first post-`float4` speedup; it is real but ABI-changing |
-| Compact input layout can reduce actual input sectors | `0.1687 ms` median over 3 full-size runs | Nsight reports `137.952 us`, `91.8%` DRAM throughput, `134 MB` DRAM reads, and `4,194,304` L1 load sectors versus `16,777,216` for sparse AoS | Strongest result so far, but it is setup/layout-changing; count packing cost unless a producer can emit compact `x/w` directly |
+| Compact input layout can reduce actual input sectors | `0.1687 ms` median over 3 full-size runs | Nsight reports `137.952 us`, `91.8%` DRAM throughput, `134 MB` DRAM reads, and `4,194,304` L1 load sectors versus `16,777,216` for sparse AoS | Strong setup/layout-changing step; count packing cost unless a producer can emit compact `x/w` directly |
+| Compact FP16 input might cut compact `x/w` traffic again | `0.1210 ms`, expected failure; first checked miss had `rdiff 0.001544` | Same logical traffic as U16 fixed-point, but FP16 quantization near `1.0` is too coarse for the tangent-sensitive lane | Do not use raw FP16 input under the current tolerance |
+| Compact U16 fixed-point input can keep 16-bit storage and tolerance | `0.1243 ms` median over 3 full-size runs, correctness passes | Nsight reports `93.312 us`, `88.62%` DRAM throughput, `13.42%` SM throughput, `67 MB` DRAM reads, `63 MB` DRAM writes, and `2,097,152` L1 load sectors | New fastest kernel-side result; still layout-changing and benchmark-range-specific |
 | GPU packing from original AoS can feed compact input | Pack alone `0.2565 ms`; pack plus compact consumer `0.4448 ms` | Pack kernel still reads `268 MB`, writes about `81 MB`, and requests `16,777,216` L1 load sectors | Not an end-to-end win when starting from the original float grid; compact layout must come from upstream or amortization |
 | BF16 output might be cheaper enough while staying inside tolerance | `0.2570 ms`, expected failure; first checked element had `rdiff 0.001955` | BF16 has the same output byte count as FP16 here but too few mantissa bits for the benchmark tolerance | Do not use BF16 unless the tolerance relaxes or output error is judged differently downstream |
 | SASS should confirm what `tan` actually costs | Default vector SASS contains `MUFU.SIN`, `MUFU.COS`, and `MUFU.RCP` in the tangent lane | `__tanf` lowers to sin/cos/reciprocal-like work, so explicit `sincos` sharing is not free across independent lanes | Worth revisiting only if the iterative scalar path becomes the target again |
 | CUDA Graph replay can amortize launch overhead | On `64 x 64`, stream H2D+kernel replay measured `0.014572 ms`; graph replay measured `0.013954 ms` | Graph replay trims host submission overhead, but the tested end-to-end replay still includes the H2D copy and tiny kernel work | Useful only for many small launches; it is not a lever for the full-size event-timed kernel |
 | Hardware scale can flip the bottleneck | Report now records GPU count, compute capability, memory size, max clocks, driver, NVCC, and a bottleneck hint | On this Blackwell run, high DRAM pressure plus low SM pressure marks the tuned kernels as memory-throughput bound | Treat every new GPU or problem size as a new measurement point; rerun the profile instead of carrying Blackwell conclusions blindly |
-| Multi-GPU row partitioning should be gated by capacity or throughput need | Current host has one GPU; the current harness model is `512 MiB` device memory for `8192 x 8192` | `hardware.json` now records memory models, 85% headroom checks, and contiguous row-shard ranges from `nvidia-smi` | Do not implement a multi-GPU runner on this box; use the planner to decide when a future host justifies it |
+| Multi-GPU row partitioning should be gated by capacity or throughput need | Current host has one GPU; the current harness model is `640 MiB` device memory for `8192 x 8192` | `hardware.json` now records memory models, 85% headroom checks, and contiguous row-shard ranges from `nvidia-smi` | Do not implement a multi-GPU runner on this box; use the planner to decide when a future host justifies it |
 | Tensor Cores / MMA for polynomial evaluation might use idle units | Not implemented as default; expected to lose at the current fitted degree | The valid approximation is degree `0-1` per lane, so building or storing a Vandermonde-like matrix would add scalar work and memory traffic for a tiny GEMM | Revisit only for high-degree fits, many output functions per input, or a batched layout that amortizes basis construction |
 | TMA, `cp.async`, and shared-memory tiling could overlap memory | Not applicable to the current pointwise path | There is one global read and one global write with no tile reuse | Save these for a problem shape with reuse or producer-consumer tiling |
 
@@ -249,7 +253,7 @@ directories:
 - [x] Test packed four-half output stores. It ties the two-`half2` path.
 - [x] Test BF16 output. It is too coarse for the `1e-3` tolerance.
 - [x] Test setup/layout changes that reduce actual input sectors, not just
-  nominal input bytes. Compact `x/w` input is the current upper bound.
+  nominal input bytes. Compact U16 `x/w` input is the current upper bound.
 - [x] Measure compact-input setup cost. GPU pack plus compact consume is slower
   than the default if starting from the original float grid.
 - [x] Add hardware-aware report metadata so future GPUs are classified from
@@ -259,6 +263,8 @@ directories:
 - [x] Add a multi-GPU feasibility and row-partition planner to the hardware
   report. The current Blackwell host has one GPU, so this is a portability gate
   rather than a measured scaling result.
+- [x] Test 16-bit compact input storage. Raw FP16 x/w fails tolerance, while U16
+  fixed-point x/w passes and becomes the fastest kernel-side variant.
 - [ ] Eliminate or amortize compact-input setup cost. This becomes a practical
   end-to-end win only if the producer emits compact `x/w` directly, packing is
   fused with existing setup, or packing is reused across repeated consumers.

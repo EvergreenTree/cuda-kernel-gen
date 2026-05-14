@@ -184,6 +184,7 @@ def main():
         ["FP16 / Compact x/w", fmt(speedups.get("fp16_output_vs_compact_xw"), 2) + "x" if speedups.get("fp16_output_vs_compact_xw") else "n/a"],
         ["Compact x/w / U16 x/w", fmt(speedups.get("compact_xw_vs_compact_u16_xw"), 2) + "x" if speedups.get("compact_xw_vs_compact_u16_xw") else "n/a"],
         ["U16 x/w / U8 x/w", fmt(speedups.get("compact_u16_xw_vs_compact_u8_xw"), 2) + "x" if speedups.get("compact_u16_xw_vs_compact_u8_xw") else "n/a"],
+        ["U8 half out / U8 x/w out", fmt(speedups.get("compact_u8_xw_half_output_vs_u8_xw_output"), 2) + "x" if speedups.get("compact_u8_xw_half_output_vs_u8_xw_output") else "n/a"],
         ["Scaling Status", fmt(scaling.get("status"))],
         ["Harness Memory", fmt_unit(scaling.get("single_gpu_harness_mib"), " MiB", 2)],
     ]

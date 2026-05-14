@@ -104,6 +104,14 @@ Builds the explicit fixed-range polynomial binary. This is benchmark-specific:
 it assumes inputs in `[1.0, 1.01]` and `niterations == 5`.
 
 ```bash
+make bf16-experiment
+```
+
+Builds and runs the BF16-output precision boundary test. This is expected to
+fail the `1e-3` tolerance and still exit successfully, because BF16 is tracked
+as an explicit expected-fail experiment rather than a default correctness path.
+
+```bash
 make fit-poly
 ```
 
@@ -144,76 +152,18 @@ the local L4.
 Measured on the local NVIDIA RTX PRO 6000 Blackwell Server Edition
 (`sm_120`, 188 SMs) with CUDA 13.0:
 
-| Build / variant | Correct | Time per launch |
-| --- | --- | ---: |
-| Original problem definition | yes | 13.21 ms |
-| Optimized build, original row-stride ablation | yes | 5.67 ms |
-| Optimized build, scalar coalesced ablation | yes | 0.51 ms |
-| Optimized build, vectorized default | yes | 0.31 ms |
-| Optimized build, ILP `float4` variant | yes | 0.34 ms |
-| Experimental guarded fixed-range polynomial variant | yes | 0.31 ms |
-| Experimental unchecked fixed-range polynomial variant | yes | 0.31 ms |
-| Experimental sparse affine fixed-range variant | yes | 0.31 ms |
-| Experimental FP16-output affine variant | yes | 0.257 ms |
+| Build / variant | ABI / role | Correct | Time per launch |
+| --- | --- | --- | ---: |
+| Original problem definition | float in/out | yes | 13.21 ms |
+| Original row-stride ablation | float in/out | yes | 5.67 ms |
+| Scalar coalesced ablation | float in/out | yes | 0.51 ms |
+| Vectorized default | float in/out | yes | 0.31 ms |
+| Fixed-range polynomial / affine family | float in/out | yes | 0.309-0.310 ms |
+| FP16-output affine family | float in, half out | yes | 0.257 ms |
+| BF16-output affine boundary | float in, BF16 out | expected no | 0.257 ms |
 
-The tuned default is about `43x` faster than the original strict build on this
-Blackwell system while preserving the float input/output ABI. The FP16-output
-experiment changes the output ABI and reaches about `51x` speedup versus the
-original strict build, or about `1.20x` over the best float-output variants.
-
-Nsight Compute on the default vector path reports about `91%` DRAM throughput,
-`48%` SM throughput, `26` registers per thread, and `86%` achieved occupancy.
-The workload is effectively memory-throughput limited after coalescing and fast
-math; extra ILP and fixed-range polynomial approximations do not materially
-improve the steady-state time.
-
-The unchecked polynomial variant was evaluated as the benchmark-specialized
-path. Its median time was effectively tied with the general vector kernel
-(`0.3095 ms` vs. `0.3099 ms` in the full profile run), so it remains an
-explicit experimental target instead of becoming the default.
-
-The offline fit shows an even cheaper fixed-range approximation is valid:
-`log` and `tan` only need affine fits, while the `cos` and `sin` lanes can be
-constants. That sparse affine variant drops to `22` registers per thread, has no
-spills, and still ties the default at about `0.31 ms`; the remaining bottleneck
-is the required global-memory writeback and transaction granularity, not SFU
-math.
-
-The FP16-output experiment keeps float input, computes the fixed-range affine
-map in FP32, and stores four half values per `float4` input group. Full-size
-median timings over three runs with `NREPS=100` were:
-
-| Variant | Correct | Median time | Nominal logical traffic |
-| --- | --- | ---: | ---: |
-| Float-output vector default | yes | 0.3099 ms | 512 MiB |
-| Float-output affine loaded | yes | 0.3096 ms | 512 MiB |
-| FP16-output affine loaded | yes | 0.2576 ms | 384 MiB |
-| FP16-output affine sparse | yes | 0.2572 ms | 256 MiB |
-
-Nsight Compute on `kernel_vector4_affine_half_output_sparse` reports `235 us`,
-`93.84%` DRAM throughput, `5.37%` SM throughput, `30` registers per thread, and
-no spills. The memory-detail pass explains why sparse and loaded FP16 output
-tie: sparse has lower nominal input bytes, but it still requests `16,777,216`
-L1 global-load sectors and about `268 MB` of DRAM reads because the two scalar
-loads per group are 16 bytes apart across warp lanes. The win comes from
-shrinking output traffic, not from skipping the unused input lanes.
-
-A follow-up packed-store variant writes the four half results as one 64-bit
-word per group. It passed correctness and measured `0.2573 ms` in one
-full-size `NREPS=100` sample, which is the same performance tier as the two
-`half2` stores. Store instruction count is therefore not a clear standalone
-wall.
-
-The fatbin path was also checked on the same machine:
-
-```bash
-make -B fatbin.x
-./fatbin.x
-CUDA_FORCE_PTX_JIT=1 ./fatbin.x
-```
-
-Native `sm_120` SASS and forced PTX JIT both measured about `0.31 ms` for the
-default vectorized variant.
+The durable hypotheses, profiler mechanisms, and stop/revisit decisions live in
+the Experiment Ledger below; this section is intentionally just the scoreboard.
 
 ## Experiment Ledger
 
@@ -233,6 +183,7 @@ and the practical takeaway.
 | Fixed-range quadratic polynomial can remove transcendental calls | `0.309-0.310 ms`, correctness passes | SFU pressure disappears, but Nsight still shows about `91%` DRAM throughput and only about `48%` SM throughput | Math is no longer the wall; global writeback dominates |
 | Sparse polynomial / sparse affine can exploit the narrow input interval | `0.309-0.310 ms`, correctness passes | Offline fit shows `cos`/`sin` can be constants and `log`/`tan` can be affine; sparse affine uses about `22` registers/thread | Good documentation of the benchmark-specialized bound, but still tied with default |
 | FP16 output can reduce the writeback wall if the ABI can change | `0.2572-0.2576 ms`, correctness passes; packed 64-bit store sampled at `0.2573 ms` | Nsight on the sparse FP16 kernel reports `93.84%` DRAM throughput, `5.37%` SM throughput, and the same L1 load-sector footprint as the loaded variant | This is the first post-`float4` speedup; it is real but ABI-changing |
+| BF16 output might be cheaper enough while staying inside tolerance | `0.2570 ms`, expected failure; first checked element had `rdiff 0.001955` | BF16 has the same output byte count as FP16 here but too few mantissa bits for the benchmark tolerance | Do not use BF16 unless the tolerance relaxes or output error is judged differently downstream |
 | SASS should confirm what `tan` actually costs | Default vector SASS contains `MUFU.SIN`, `MUFU.COS`, and `MUFU.RCP` in the tangent lane | `__tanf` lowers to sin/cos/reciprocal-like work, so explicit `sincos` sharing is not free across independent lanes | Worth revisiting only if the iterative scalar path becomes the target again |
 | CUDA Graph replay can amortize launch overhead | Not expected to move the full-size timed kernel | The measured kernel body is already about `0.31 ms`; launch overhead is outside the CUDA-event timing loop | Useful for many small launches or end-to-end host overhead, not this main timing |
 | Tensor Cores / MMA for polynomial evaluation might use idle units | Not implemented as default; expected to lose at the current fitted degree | The valid approximation is degree `0-1` per lane, so building or storing a Vandermonde-like matrix would add scalar work and memory traffic for a tiny GEMM | Revisit only for high-degree fits, many output functions per input, or a batched layout that amortizes basis construction |
@@ -255,35 +206,37 @@ directories:
 
 ## Next Moves
 
-1. Re-sweep launch geometry if the benchmark dimensions, GPU clocks, or CUDA
-   version change. The best measured Blackwell settings were close to:
+- [x] Re-sweep launch geometry on Blackwell. Best setting stayed near
+  `THREADS_PER_BLOCK=512`, `BLOCKS_PER_SM=32`.
+- [x] Capture Nsight basic metrics for the default vector kernel.
+- [x] Add an optional Nsight memory-detail pass for DRAM bytes and L1/L2 sectors.
+- [x] Fit benchmark-specialized polynomials and reduce them to sparse affine
+  where tolerance allows.
+- [x] Test FP16 output. It is the current best ABI-changing speed path.
+- [x] Test packed four-half output stores. It ties the two-`half2` path.
+- [x] Test BF16 output. It is too coarse for the `1e-3` tolerance.
+- [ ] Test setup/layout changes that reduce actual input sectors, not just
+  nominal input bytes.
+- [ ] Use CUDA Graph replay only for many small launches or end-to-end host
+  overhead studies.
+- [ ] Add multi-GPU row partitioning only when arrays exceed one GPU or scaling
+  throughput matters more than single-GPU kernel time.
+- [ ] Revisit Tensor Cores/MMA only if a future formulation has high-degree
+  basis work or many output functions per input.
 
-   ```bash
-   make -B optimized.x TUNE_FLAGS="-DTHREADS_PER_BLOCK=512 -DBLOCKS_PER_SM=32"
-   ```
+## Iteration Tips
 
-2. Capture deeper Nsight Compute metrics for the vector kernel if further work
-   is needed:
-   - SM/SFU utilization
-   - eligible warps per scheduler
-   - global load/store sector efficiency
-   - instruction mix
-3. If the output ABI can change, FP16 output is the current best experimental
-   path. Packing the four half results into one 64-bit store ties the two
-   `half2` stores, so the next ABI-side tests are whether downstream code can
-   consume half natively and whether bfloat16 is too coarse for the `1e-3`
-   tolerance.
-4. If benchmark rules allow changing adjacent setup work, test fusing data
-   generation with the kernel or otherwise removing one global read. The current
-   optimized kernels are mostly constrained by global memory traffic.
-5. Use CUDA Graph replay only for many small launches or end-to-end host
-   overhead studies; it should not move the full-size kernel much because the
-   measured body is already hundreds of microseconds.
-6. Multi-GPU row partitioning is the clean scale-out path for larger arrays.
-   It is orthogonal to the per-GPU kernel and mostly needs host orchestration.
-7. Keep Tensor Cores, WGMMA, TMA, and shared-memory tiling out of the default
-   path unless profiling shows a new reason; this workload is scalar
-   transcendental math with almost no data reuse.
+- Keep each hypothesis in the Experiment Ledger before or immediately after
+  running it. The table should answer: what changed, what number moved, what
+  mechanism explains it, and whether to revisit.
+- Separate semantic-preserving paths from ABI-changing paths. FP16 output is a
+  real win, but it should not silently replace the float-output default.
+- Prefer one winning full sweep and cheap single-sample probes for likely
+  non-winners. The CPU checker and input reset copies dominate wall time.
+- Track actual memory sectors with Nsight when a sparse idea looks better on
+  paper. Nominal bytes have already misled us once.
+- Keep commits atomic by axis: launch geometry, approximation, ABI/storage,
+  profiling/reporting, and documentation.
 
 ## References
 

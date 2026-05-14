@@ -48,6 +48,10 @@ KERNEL_VARIANTS = (
         "kernel_vector4_affine_half_output_packed",
         "vector4_affine_half_output_packed_experimental",
     ),
+    (
+        "kernel_vector4_affine_bfloat16_output_loaded",
+        "vector4_affine_bf16_output_loaded_expected_fail",
+    ),
     ("kernel_scalar_fast_half_output", "scalar_fast_half_output_fallback"),
     ("kernel_vector4_fast_dynamic", "vector4_dynamic_fallback"),
     ("kernel_scalar_coalesced_dynamic", "scalar_dynamic_fallback"),

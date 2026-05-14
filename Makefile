@@ -16,6 +16,7 @@ ARCH_FLAGS ?= -arch=native
 FAST_FLAGS := --use_fast_math
 TUNE_FLAGS ?=
 SPECIALIZED_FLAGS ?= -DUSE_POLY_APPROX_DEFAULT=1
+BF16_FLAGS ?= -DENABLE_BF16_OUTPUT_EXPERIMENT=1
 FATBIN_FLAGS := \
 	-gencode arch=compute_89,code=sm_89 \
 	-gencode arch=compute_90,code=sm_90 \
@@ -23,7 +24,7 @@ FATBIN_FLAGS := \
 	-gencode arch=compute_120,code=sm_120 \
 	-gencode arch=compute_120,code=compute_120
 
-.PHONY: all check baseline-check specialized-check fatbin-check sanitize bench profile-time profile-space profile report profile-quick fit-poly clean
+.PHONY: all check baseline-check specialized-check bf16-experiment fatbin-check sanitize bench profile-time profile-space profile report profile-quick fit-poly clean
 
 all: optimized.x
 
@@ -32,6 +33,9 @@ optimized.x: $(OPT_SRC)
 
 specialized.x: $(OPT_SRC)
 	$(NVCC) $(COMMON_FLAGS) $(ARCH_FLAGS) $(FAST_FLAGS) $(SPECIALIZED_FLAGS) $(TUNE_FLAGS) $< -o $@
+
+bf16.x: $(OPT_SRC)
+	$(NVCC) $(COMMON_FLAGS) $(ARCH_FLAGS) $(FAST_FLAGS) $(BF16_FLAGS) $(TUNE_FLAGS) $< -o $@
 
 baseline.x: $(PROBLEM_SRC)
 	$(NVCC) $(COMMON_FLAGS) $< -o $@
@@ -47,6 +51,9 @@ baseline-check: baseline.x
 
 specialized-check: specialized.x
 	./specialized.x
+
+bf16-experiment: bf16.x
+	./bf16.x
 
 fatbin-check: fatbin.x
 	./fatbin.x

@@ -165,6 +165,7 @@ def main():
     nvcc = hardware.get("nvcc", {})
     classification = hardware.get("classification", {})
     speedups = classification.get("variant_speedups", {})
+    scaling = hardware.get("scaling", {})
     hardware_rows = [
         ["GPU", fmt(device.get("name") or summary.get("gpu", {}).get("name"))],
         ["Compute Capability", fmt(device.get("compute_capability") or summary.get("gpu", {}).get("compute_capability"))],
@@ -177,6 +178,8 @@ def main():
         ["Bottleneck Hint", fmt(classification.get("bottleneck_hint"))],
         ["Default / FP16 Output", fmt(speedups.get("default_vs_fp16_output"), 2) + "x" if speedups.get("default_vs_fp16_output") else "n/a"],
         ["FP16 / Compact x/w", fmt(speedups.get("fp16_output_vs_compact_xw"), 2) + "x" if speedups.get("fp16_output_vs_compact_xw") else "n/a"],
+        ["Scaling Status", fmt(scaling.get("status"))],
+        ["Harness Memory", fmt_unit(scaling.get("single_gpu_harness_mib"), " MiB", 2)],
     ]
     hardware_notes = classification.get("notes", [])
     hardware_notes_html = (
@@ -184,6 +187,35 @@ def main():
         if hardware_notes
         else "<p>No hardware notes captured.</p>"
     )
+    scaling_rows = []
+    for model in scaling.get("memory_models", []):
+        scaling_rows.append(
+            [
+                html.escape(model.get("name", "")),
+                fmt(model.get("bytes_per_element")),
+                fmt_mib(model.get("total_bytes")),
+                html.escape(model.get("note", "")),
+            ]
+        )
+    partition_rows = []
+    for part in scaling.get("partitions", []):
+        fits = part.get("fits_harness_with_headroom")
+        if fits is None:
+            fits_text = "n/a"
+        else:
+            fits_text = "yes" if fits else "no"
+        partition_rows.append(
+            [
+                fmt(part.get("gpu_index"), 0),
+                html.escape(part.get("gpu_name") or ""),
+                f"{fmt(part.get('row_start'), 0)}-{fmt(part.get('row_end'), 0)}",
+                fmt(part.get("rows"), 0),
+                fmt_unit(part.get("harness_mib"), " MiB", 2),
+                fmt_unit(part.get("usable_memory_mib"), " MiB", 2),
+                fits_text,
+            ]
+        )
+    scaling_note = html.escape(scaling.get("recommendation", "No scaling plan captured."))
 
     html_doc = f"""<!doctype html>
 <html lang="en">
@@ -224,6 +256,12 @@ code {{ background: #edf2f5; border-radius: 4px; padding: 1px 4px; }}
 <h2>Hardware Adaptation</h2>
 {render_table(["Item", "Value"], hardware_rows)}
 {hardware_notes_html}
+</section>
+<section>
+<h2>Hardware Scaling</h2>
+<p>{scaling_note}</p>
+{render_table(["Memory Model", "Bytes / Element", "Total", "Meaning"], scaling_rows)}
+{render_table(["GPU", "Name", "Rows", "Row Count", "Harness Shard", "Usable Memory", "Fits"], partition_rows)}
 </section>
 {bar_chart("Time Per Launch", time_items, " ms", digits=4)}
 {bar_chart("Speedup Vs Row-Stride", speed_items, "x")}

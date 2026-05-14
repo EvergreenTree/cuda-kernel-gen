@@ -100,8 +100,9 @@ report.
 make hardware-report
 ```
 
-Writes `hardware.json` under `REPORT_DIR`. It records device/toolchain facts
-and adds a lightweight bottleneck hint from the timing and Nsight summaries.
+Writes `hardware.json` under `REPORT_DIR`. It records device/toolchain facts,
+adds a lightweight bottleneck hint from the timing and Nsight summaries, and
+models memory headroom plus row partitioning for future multi-GPU runs.
 
 ```bash
 make specialized-check
@@ -214,6 +215,7 @@ and the practical takeaway.
 | SASS should confirm what `tan` actually costs | Default vector SASS contains `MUFU.SIN`, `MUFU.COS`, and `MUFU.RCP` in the tangent lane | `__tanf` lowers to sin/cos/reciprocal-like work, so explicit `sincos` sharing is not free across independent lanes | Worth revisiting only if the iterative scalar path becomes the target again |
 | CUDA Graph replay can amortize launch overhead | On `64 x 64`, stream H2D+kernel replay measured `0.014572 ms`; graph replay measured `0.013954 ms` | Graph replay trims host submission overhead, but the tested end-to-end replay still includes the H2D copy and tiny kernel work | Useful only for many small launches; it is not a lever for the full-size event-timed kernel |
 | Hardware scale can flip the bottleneck | Report now records GPU count, compute capability, memory size, max clocks, driver, NVCC, and a bottleneck hint | On this Blackwell run, high DRAM pressure plus low SM pressure marks the tuned kernels as memory-throughput bound | Treat every new GPU or problem size as a new measurement point; rerun the profile instead of carrying Blackwell conclusions blindly |
+| Multi-GPU row partitioning should be gated by capacity or throughput need | Current host has one GPU; the current harness model is `512 MiB` device memory for `8192 x 8192` | `hardware.json` now records memory models, 85% headroom checks, and contiguous row-shard ranges from `nvidia-smi` | Do not implement a multi-GPU runner on this box; use the planner to decide when a future host justifies it |
 | Tensor Cores / MMA for polynomial evaluation might use idle units | Not implemented as default; expected to lose at the current fitted degree | The valid approximation is degree `0-1` per lane, so building or storing a Vandermonde-like matrix would add scalar work and memory traffic for a tiny GEMM | Revisit only for high-degree fits, many output functions per input, or a batched layout that amortizes basis construction |
 | TMA, `cp.async`, and shared-memory tiling could overlap memory | Not applicable to the current pointwise path | There is one global read and one global write with no tile reuse | Save these for a problem shape with reuse or producer-consumer tiling |
 
@@ -226,8 +228,9 @@ directories:
 - `summary.json`: median/min/max timing and speedup summary.
 - `space.json`: ptxas register/spill counts, binary sizes, logical memory
   traffic, and selected Nsight Compute metrics.
-- `hardware.json`: GPU/toolchain facts, bottleneck hint, and hardware-specific
-  adaptation notes.
+- `hardware.json`: GPU/toolchain facts, bottleneck hint, hardware-specific
+  adaptation notes, memory models, and row-shard feasibility for multi-GPU
+  portability.
 - optional memory-detail Nsight counters: DRAM read/write bytes, L1 global
   load/store sectors, and L2 read/write sectors when `--memory-details` is set.
 - `index.html`: concise visual report with speedup, memory handling, occupancy,
@@ -253,13 +256,16 @@ directories:
   their own timings and Nsight counters.
 - [x] Test CUDA Graph replay on many small H2D-copy-plus-kernel launches. It
   helps only modestly for the measured `64 x 64` replay case.
+- [x] Add a multi-GPU feasibility and row-partition planner to the hardware
+  report. The current Blackwell host has one GPU, so this is a portability gate
+  rather than a measured scaling result.
 - [ ] Eliminate or amortize compact-input setup cost. This becomes a practical
   end-to-end win only if the producer emits compact `x/w` directly, packing is
   fused with existing setup, or packing is reused across repeated consumers.
 - [ ] Re-run `make profile NCU_PREFIX=sudo` on every materially different GPU,
   CUDA version, clock policy, or problem size before applying this ledger.
-- [ ] Add multi-GPU row partitioning only when arrays exceed one GPU or scaling
-  throughput matters more than single-GPU kernel time.
+- [ ] Implement and benchmark a true multi-GPU runner only when a host has
+  multiple GPUs and capacity or throughput goals justify copy/merge overhead.
 - [ ] Revisit Tensor Cores/MMA only if a future formulation has high-degree
   basis work or many output functions per input.
 
@@ -279,6 +285,9 @@ directories:
 - For hardware portability, compare mechanisms, not just winners. A smaller GPU
   may become launch/latency sensitive; a higher-bandwidth GPU may expose math or
   occupancy again.
+- Treat `hardware.json` as part of every serious result. It captures the device
+  count, memory headroom, and row-shard plan needed to explain whether a win is
+  single-GPU-specific or likely to scale.
 - Keep commits atomic by axis: launch geometry, approximation, ABI/storage,
   profiling/reporting, and documentation.
 

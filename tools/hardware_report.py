@@ -9,6 +9,9 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_DIMX = 8 * 1024
+DEFAULT_DIMY = 8 * 1024
+HEADROOM_FRACTION = 0.85
 
 SMI_FIELDS = (
     "name",
@@ -35,6 +38,12 @@ def run(cmd):
 
 def read_json(path, default):
     return json.loads(path.read_text()) if path.exists() else default
+
+
+def read_problem_size(summary):
+    dimx = summary.get("dimx") or DEFAULT_DIMX
+    dimy = summary.get("dimy") or DEFAULT_DIMY
+    return int(dimx), int(dimy)
 
 
 def parse_number(value):
@@ -102,6 +111,148 @@ def speedup(a, b):
     if not a_ms or not b_ms:
         return None
     return a_ms / b_ms
+
+
+def mib(value):
+    return value / (1024 * 1024)
+
+
+def split_rows(dimy, device_count):
+    ranges = []
+    base_rows = dimy // device_count
+    extra_rows = dimy % device_count
+    row_start = 0
+    for index in range(device_count):
+        rows = base_rows + (1 if index < extra_rows else 0)
+        row_end = row_start + rows
+        ranges.append({"row_start": row_start, "row_end": row_end, "rows": rows})
+        row_start = row_end
+    return ranges
+
+
+def build_memory_models(dimx, dimy):
+    elements = dimx * dimy
+    return [
+        {
+            "name": "current_harness_device_allocations",
+            "bytes_per_element": 8.0,
+            "total_bytes": elements * 8,
+            "note": "Current benchmark allocates float input/output plus FP16 and compact x/w scratch buffers.",
+        },
+        {
+            "name": "float_inplace_default",
+            "bytes_per_element": 4.0,
+            "total_bytes": elements * 4,
+            "note": "Production minimum for the float in-place default kernel.",
+        },
+        {
+            "name": "float_input_fp16_output",
+            "bytes_per_element": 6.0,
+            "total_bytes": elements * 6,
+            "note": "ABI-changing path with float input retained and FP16 output.",
+        },
+        {
+            "name": "compact_xw_input_fp16_output",
+            "bytes_per_element": 4.0,
+            "total_bytes": elements * 4,
+            "note": "Upper-bound compact consumer: compact x/w input plus FP16 output.",
+        },
+    ]
+
+
+def scaling_plan(nvidia_smi, dimx, dimy):
+    devices = nvidia_smi.get("devices", []) if nvidia_smi.get("status") == "ok" else []
+    device_count = len(devices)
+    elements = dimx * dimy
+    memory_models = build_memory_models(dimx, dimy)
+    harness_model = memory_models[0]
+
+    result = {
+        "dimx": dimx,
+        "dimy": dimy,
+        "elements": elements,
+        "headroom_fraction": HEADROOM_FRACTION,
+        "memory_models": memory_models,
+        "partitions": [],
+    }
+
+    if device_count == 0:
+        result.update(
+            {
+                "status": "unknown",
+                "recommendation": "No GPU memory data was available; rerun on the target host before making scale decisions.",
+            }
+        )
+        return result
+
+    row_ranges = split_rows(dimy, device_count)
+    for device, row_range in zip(devices, row_ranges):
+        shard_elements = dimx * row_range["rows"]
+        memory_total_mib = device.get("memory_total_mib")
+        usable_bytes = (
+            int(memory_total_mib * 1024 * 1024 * HEADROOM_FRACTION)
+            if memory_total_mib
+            else None
+        )
+        harness_bytes = int(shard_elements * harness_model["bytes_per_element"])
+        result["partitions"].append(
+            {
+                "gpu_index": len(result["partitions"]),
+                "gpu_name": device.get("name"),
+                "row_start": row_range["row_start"],
+                "row_end": row_range["row_end"],
+                "rows": row_range["rows"],
+                "harness_bytes": harness_bytes,
+                "harness_mib": mib(harness_bytes),
+                "usable_memory_mib": mib(usable_bytes) if usable_bytes else None,
+                "fits_harness_with_headroom": (
+                    harness_bytes <= usable_bytes if usable_bytes else None
+                ),
+            }
+        )
+
+    single_harness_bytes = harness_model["total_bytes"]
+    single_device = devices[0]
+    single_usable = (
+        int(single_device["memory_total_mib"] * 1024 * 1024 * HEADROOM_FRACTION)
+        if single_device.get("memory_total_mib")
+        else None
+    )
+    fits_single = single_harness_bytes <= single_usable if single_usable else None
+    fits_partitioned = all(
+        part["fits_harness_with_headroom"] is not False
+        for part in result["partitions"]
+    )
+
+    if device_count == 1:
+        status = "single-gpu"
+        recommendation = (
+            "This host has one GPU, so no multi-GPU speedup can be measured here. "
+            "Keep row partitioning as a capacity/throughput option for a future multi-GPU host."
+        )
+    elif not fits_single and fits_partitioned:
+        status = "capacity-scaling-candidate"
+        recommendation = (
+            "A single GPU may not fit the current harness with headroom, while row shards do; "
+            "multi-GPU partitioning is justified for capacity."
+        )
+    else:
+        status = "throughput-scaling-only"
+        recommendation = (
+            "The problem fits one GPU with headroom; multi-GPU work should be gated on "
+            "throughput goals and measured transfer/reduction overhead."
+        )
+
+    result.update(
+        {
+            "status": status,
+            "single_gpu_harness_mib": mib(single_harness_bytes),
+            "fits_single_gpu_harness_with_headroom": fits_single,
+            "fits_partitioned_harness_with_headroom": fits_partitioned,
+            "recommendation": recommendation,
+        }
+    )
+    return result
 
 
 def classify(summary, space):
@@ -201,8 +352,10 @@ def main():
     result = {
         "nvidia_smi": query_nvidia_smi(),
         "nvcc": query_nvcc(),
-        "classification": classify(summary, space),
     }
+    dimx, dimy = read_problem_size(summary)
+    result["classification"] = classify(summary, space)
+    result["scaling"] = scaling_plan(result["nvidia_smi"], dimx, dimy)
     (output_dir / "hardware.json").write_text(json.dumps(result, indent=2) + "\n")
     print(f"Wrote {output_dir / 'hardware.json'}")
 

@@ -2,11 +2,15 @@ NVCC ?= $(shell command -v nvcc 2>/dev/null || printf /usr/local/cuda/bin/nvcc)
 COMPUTE_SANITIZER ?= $(shell command -v compute-sanitizer 2>/dev/null || printf /usr/local/cuda/bin/compute-sanitizer)
 PYTHON ?= python3
 REPORT_DIR ?= reports/latest
+CLIENT_REPORT_DIR ?= reports/client-$(shell hostname)-$(shell date -u +%Y%m%dT%H%M%SZ)
 BENCH_NREPS ?= 100
 BENCH_RUNS ?= 3
 PROFILE_DIM ?= 8192
 NCU_PREFIX ?=
 PROFILE_FLAGS ?=
+PROFILE_TUNE_FLAGS ?= $(LAYOUT_FLAGS)
+BENCH_TUNE_FLAGS ?=
+CLIENT_PROFILE_FLAGS ?= --memory-details
 
 OPT_SRC := src/cuda_prog.cu
 PROBLEM_SRC := problem/cuda_prog_unoptimized.cu
@@ -26,7 +30,7 @@ FATBIN_FLAGS := \
 	-gencode arch=compute_120,code=sm_120 \
 	-gencode arch=compute_120,code=compute_120
 
-.PHONY: all check baseline-check specialized-check bf16-experiment layout-experiment graph-experiment fatbin-check sanitize bench profile-time profile-space hardware-report profile report profile-quick fit-poly clean
+.PHONY: all check baseline-check specialized-check bf16-experiment layout-experiment graph-experiment fatbin-check sanitize bench profile-time profile-space hardware-report profile report client-summary client-report profile-quick fit-poly clean
 
 all: optimized.x
 
@@ -76,8 +80,9 @@ sanitize: optimized.x
 	$(COMPUTE_SANITIZER) --tool memcheck --kernel-name regex=kernel_vector4_fast --launch-count 1 --error-exitcode 99 ./optimized.x
 
 bench:
-	$(PYTHON) tools/bench.py --build --runs $(BENCH_RUNS) --nreps $(BENCH_NREPS) --dimx $(PROFILE_DIM) --dimy $(PROFILE_DIM) --output-dir $(REPORT_DIR)
+	$(PYTHON) tools/bench.py --build --runs $(BENCH_RUNS) --nreps $(BENCH_NREPS) --dimx $(PROFILE_DIM) --dimy $(PROFILE_DIM) --tune-flags="$(BENCH_TUNE_FLAGS)" --output-dir $(REPORT_DIR)
 
+profile-time: BENCH_TUNE_FLAGS=$(PROFILE_TUNE_FLAGS)
 profile-time: bench
 
 profile-space: optimized.x
@@ -90,6 +95,13 @@ report:
 	$(PYTHON) tools/render_report.py --output-dir $(REPORT_DIR)
 
 profile: profile-time profile-space hardware-report report
+
+client-summary:
+	$(PYTHON) tools/export_client_summary.py --output-dir $(REPORT_DIR)
+
+client-report:
+	$(MAKE) profile REPORT_DIR="$(CLIENT_REPORT_DIR)" PROFILE_FLAGS="$(CLIENT_PROFILE_FLAGS)" NCU_PREFIX="$(NCU_PREFIX)" PROFILE_TUNE_FLAGS="$(PROFILE_TUNE_FLAGS)"
+	$(PYTHON) tools/export_client_summary.py --output-dir "$(CLIENT_REPORT_DIR)"
 
 profile-quick:
 	$(PYTHON) tools/bench.py --build --runs 1 --nreps 10 --dimx 1024 --dimy 1024 --output-dir $(REPORT_DIR)/quick

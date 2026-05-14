@@ -1,14 +1,17 @@
 # CUDA Kernel Gen
 
-## Project Promises
+## Client-Facing Outcomes
 
-- Keep the original benchmark available as the problem definition.
-- Maintain an optimized implementation that passes the assignment tolerance.
-- Preserve ablation paths so performance claims can be measured, not guessed.
-- Build cleanly on the local Ada L4 system and carry a CUDA fatbin path for
-  Hopper and Blackwell follow-up work.
-- Favor practical kernel performance: memory coalescing, occupancy, register
-  pressure, fast math, launch geometry, and profiler evidence.
+- Deliver a CUDA implementation that preserves the benchmark correctness
+  contract while making the performance/correctness tradeoffs explicit.
+- Keep the original problem definition, optimized default, and experimental ABI
+  variants side by side so client decisions are evidence-based.
+- Produce repeatable, machine-specific reports that combine timing, profiler,
+  hardware, memory-footprint, and visual summaries.
+- Separate drop-in optimizations from ABI-changing options such as FP16 output,
+  compact fixed-point storage, and compact downstream consumers.
+- Productize the tuning workflow: every new machine should start with one report
+  command, one readable summary, and ledger-backed recommendations.
 
 ## Scope
 
@@ -25,6 +28,10 @@ The correctness contract is the benchmark's existing `1e-3` relative tolerance.
 The optimized path is allowed to use CUDA fast math when it remains inside that
 tolerance.
 
+The default deliverable is a semantic-preserving float in/out kernel. Additional
+specialized variants are included to quantify what becomes possible when a
+client can change storage format or downstream consumption.
+
 ## Project Structure
 
 ```text
@@ -33,14 +40,22 @@ tolerance.
 ├── README.md
 ├── problem/
 │   └── cuda_prog_unoptimized.cu
-└── src/
-    └── cuda_prog.cu
+├── src/
+│   └── cuda_prog.cu
+└── tools/
+    ├── bench.py
+    ├── export_client_summary.py
+    ├── hardware_report.py
+    ├── profile.py
+    └── render_report.py
 ```
 
 - `problem/cuda_prog_unoptimized.cu` is the original benchmark/problem
   definition.
 - `src/cuda_prog.cu` is the optimized implementation and self-contained
   ablation harness.
+- `tools/` contains the automated timing, profiling, hardware, visualization,
+  and client-summary exporters.
 - Generated binaries, profiler reports, and build scratch files are ignored by
   `.gitignore`.
 
@@ -87,6 +102,27 @@ make profile NCU_PREFIX=sudo
 Runs full-size timing, Nsight Compute space/resource collection, and report
 rendering under `reports/latest/`. If performance counter access is enabled for
 the current user, omit `NCU_PREFIX=sudo`.
+
+`make profile` and `make client-report` include layout/setup variants by
+default through `PROFILE_TUNE_FLAGS`. Set `PROFILE_TUNE_FLAGS=` for a leaner
+core-kernel report.
+
+```bash
+make client-report NCU_PREFIX=sudo
+```
+
+Runs the productized target-machine workflow into a timestamped
+`reports/client-.../` directory. It enables layout/setup variants, captures
+Nsight memory details, renders `index.html`, and writes `client_summary.md` for
+handoff. Override `CLIENT_PROFILE_FLAGS` to change which Nsight metrics or
+kernel regex are collected.
+
+```bash
+make client-summary
+```
+
+Regenerates `client_summary.md` for the current `REPORT_DIR` after an existing
+profile run.
 
 ```bash
 make profile-space NCU_PREFIX=sudo PROFILE_FLAGS="--memory-details --kernel-regex kernel_vector4_affine_half_output_sparse"
@@ -243,7 +279,7 @@ and the practical takeaway.
 | SASS should confirm what `tan` actually costs | Default vector SASS contains `MUFU.SIN`, `MUFU.COS`, and `MUFU.RCP` in the tangent lane | `__tanf` lowers to sin/cos/reciprocal-like work, so explicit `sincos` sharing is not free across independent lanes | Worth revisiting only if the iterative scalar path becomes the target again |
 | CUDA Graph replay can amortize launch overhead | On `64 x 64`, stream H2D+kernel replay measured `0.014572 ms`; graph replay measured `0.013954 ms` | Graph replay trims host submission overhead, but the tested end-to-end replay still includes the H2D copy and tiny kernel work | Useful only for many small launches; it is not a lever for the full-size event-timed kernel |
 | Hardware scale can flip the bottleneck | Report now records GPU count, compute capability, memory size, max clocks, driver, NVCC, and a bottleneck hint | On this Blackwell run, high DRAM pressure plus low SM pressure marks the tuned kernels as memory-throughput bound | Treat every new GPU or problem size as a new measurement point; rerun the profile instead of carrying Blackwell conclusions blindly |
-| Profiling must cover both time and space | `make profile`, `make profile-space`, `make hardware-report`, and `make report` now emit timing, Nsight, hardware, and visual artifacts | `summary.json` stores medians/speedups, `space.json` stores ptxas plus Nsight facts, `hardware.json` stores device/scaling facts, and `index.html` visualizes the practical deltas | Rerun the report bundle for every serious result; do not rely on stopwatch-only comparisons |
+| Profiling must cover both time and space | `make client-report` now wraps timing, Nsight, hardware capture, HTML rendering, and Markdown summary export | `summary.json` stores medians/speedups, `space.json` stores ptxas plus Nsight facts, `hardware.json` stores device/scaling facts, `index.html` visualizes the practical deltas, and `client_summary.md` provides the handoff readout | Rerun the report bundle for every serious result; do not rely on stopwatch-only comparisons |
 | Multi-GPU row partitioning should be gated by capacity or throughput need | Current host has one GPU; the current harness model is `784 MiB` device memory for `8192 x 8192` | `hardware.json` now records memory models, 85% headroom checks, and contiguous row-shard ranges from `nvidia-smi` | Do not implement a multi-GPU runner on this box; use the planner to decide when a future host justifies it |
 | Tensor Cores / MMA for polynomial evaluation might use idle units | Not implemented as default; expected to lose at the current fitted degree | The valid approximation is degree `0-1` per lane, so building or storing a Vandermonde-like matrix would add scalar work and memory traffic for a tiny GEMM | Revisit only for high-degree fits, many output functions per input, or a batched layout that amortizes basis construction |
 | TMA, `cp.async`, and shared-memory tiling could overlap memory | Not applicable to the current pointwise path | There is one global read and one global write with no tile reuse | Save these for a problem shape with reuse or producer-consumer tiling |
@@ -264,6 +300,8 @@ directories:
   load/store sectors, and L2 read/write sectors when `--memory-details` is set.
 - `index.html`: concise visual report with speedup, memory handling, occupancy,
   and resource-footprint charts.
+- `client_summary.md`: concise handoff summary with hardware facts, key variant
+  timings, profiler status, and recommendations.
 - `poly_fits.json`: fixed-range polynomial search results and validation error.
 
 ## Glossary
@@ -292,22 +330,23 @@ directories:
 | WGMMA | Warp-Group Matrix Multiply-Accumulate. Tensor Core path for matrix work; not useful here unless a future formulation creates enough batched polynomial basis work. |
 | x/w | The first and fourth lanes in each four-float group. For this input range, the second and third lanes collapse to constants after approximation, so x/w carry the useful varying data. |
 
-## Forward Plan
+## Universal Machine Workflow
 
 The completed Blackwell checklist has been retired because its facts now live in
-the scoreboard or Experiment Ledger above. New work should start from the target
-hardware, not from the stale order of the old checklist.
+the scoreboard or Experiment Ledger above. Treat this workflow as the product
+path for any target machine: workstation, server, cloud GPU, or future
+architecture.
 
-1. Rebaseline the next machine.
-   Run `make profile NCU_PREFIX=sudo PROFILE_FLAGS="--memory-details"` and
-   preserve the generated `summary.json`, `space.json`, `hardware.json`, and
-   `index.html` before changing code.
+1. Generate the target-machine report.
+   Run `make client-report NCU_PREFIX=sudo`. Preserve the generated
+   `client_summary.md`, `index.html`, `summary.json`, `space.json`, and
+   `hardware.json` before changing code.
 
-2. Classify the new bottleneck.
-   Compare `hardware.json` with the Blackwell ledger. If the target is still
-   memory-throughput bound, focus on byte/sector reduction. If it becomes
-   compute-, SFU-, occupancy-, or launch-sensitive, reopen only the matching
-   ledger rows.
+2. Classify the bottleneck from evidence.
+   Use `client_summary.md` for the client-facing readout and `hardware.json` /
+   `space.json` for details. If the target is memory-throughput bound, focus on
+   byte/sector reduction. If it becomes compute-, SFU-, occupancy-, or
+   launch-sensitive, reopen only the matching ledger rows.
 
 3. Keep ABI decisions explicit.
    Treat the float in/out vector kernel as the semantic-preserving baseline.
@@ -315,17 +354,21 @@ hardware, not from the stale order of the old checklist.
    as separate ABI tracks with their own result rows.
 
 4. Re-test the compact consumer path early.
-   On Blackwell, custom U8 output only pays off when the next stage consumes
+   On Blackwell, custom U8 output only paid off when the next stage consumed
    compact `x/w` directly. Re-measure the float projection, compact projection,
-   float pipeline, and setup-paid compact pipeline before committing to that ABI
-   on another GPU.
+   float pipeline, and setup-paid compact pipeline before recommending that ABI
+   on any target.
 
 5. Add one target-machine results section.
    Do not overwrite the Blackwell table. Add a new concise scoreboard plus any
    new ledger rows, and record whether each old conclusion held, flipped, or was
    not applicable.
 
-6. Gate larger engineering work on evidence.
+6. Automate before repeating manual analysis.
+   If a step will be reused on multiple machines, add or extend a Make target or
+   `tools/` script before documenting it as a manual runbook step.
+
+7. Gate larger engineering work on evidence.
    Implement multi-GPU row partitioning only on a multi-GPU host with capacity
    pressure or throughput goals. Revisit Tensor Cores, TMA, or `cp.async` only
    if the problem formulation changes enough to create matrix-shaped work or

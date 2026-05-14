@@ -124,8 +124,8 @@ make layout-experiment
 ```
 
 Builds and runs the optional compact-input setup test. This measures both the
-upper-bound compact `x/w` consumer and the end-to-end GPU pack plus compact
-consumer path.
+upper-bound compact `x/w` consumers and the end-to-end GPU pack plus compact
+consumer paths.
 
 ```bash
 make graph-experiment
@@ -215,6 +215,7 @@ and the practical takeaway.
 | Compact FP16 input might cut compact `x/w` traffic again | `0.1210 ms`, expected failure; first checked miss had `rdiff 0.001544` | Same logical traffic as U16 fixed-point, but FP16 quantization near `1.0` is too coarse for the tangent-sensitive lane | Do not use raw FP16 input under the current tolerance |
 | Compact U16 fixed-point input can keep 16-bit storage and tolerance | `0.1243 ms` median over 3 full-size runs, correctness passes | Nsight reports `93.312 us`, `88.62%` DRAM throughput, `13.42%` SM throughput, `67 MB` DRAM reads, `63 MB` DRAM writes, and `2,097,152` L1 load sectors | New fastest kernel-side result; still layout-changing and benchmark-range-specific |
 | GPU packing from original AoS can feed compact input | Pack alone `0.2565 ms`; pack plus compact consumer `0.4448 ms` | Pack kernel still reads `268 MB`, writes about `81 MB`, and requests `16,777,216` L1 load sectors | Not an end-to-end win when starting from the original float grid; compact layout must come from upstream or amortization |
+| GPU packing from original AoS can feed compact U16 input | Pack alone `0.2115 ms`; pack plus U16 compact consumer `0.3535 ms` | Nsight on the U16 pack reports `210.272 us`, `92.81%` DRAM throughput, `268 MB` reads, `43 MB` writes, `16,777,216` L1 load sectors, and `2,097,152` L1 store sectors | Better than FP32 compact packing, but still slower than the `0.31 ms` default when setup is paid every launch |
 | BF16 output might be cheaper enough while staying inside tolerance | `0.2570 ms`, expected failure; first checked element had `rdiff 0.001955` | BF16 has the same output byte count as FP16 here but too few mantissa bits for the benchmark tolerance | Do not use BF16 unless the tolerance relaxes or output error is judged differently downstream |
 | SASS should confirm what `tan` actually costs | Default vector SASS contains `MUFU.SIN`, `MUFU.COS`, and `MUFU.RCP` in the tangent lane | `__tanf` lowers to sin/cos/reciprocal-like work, so explicit `sincos` sharing is not free across independent lanes | Worth revisiting only if the iterative scalar path becomes the target again |
 | CUDA Graph replay can amortize launch overhead | On `64 x 64`, stream H2D+kernel replay measured `0.014572 ms`; graph replay measured `0.013954 ms` | Graph replay trims host submission overhead, but the tested end-to-end replay still includes the H2D copy and tiny kernel work | Useful only for many small launches; it is not a lever for the full-size event-timed kernel |
@@ -265,6 +266,9 @@ directories:
   rather than a measured scaling result.
 - [x] Test 16-bit compact input storage. Raw FP16 x/w fails tolerance, while U16
   fixed-point x/w passes and becomes the fastest kernel-side variant.
+- [x] Measure U16 compact-input setup cost. GPU pack plus U16 compact consume is
+  closer than the FP32 compact path but still slower than the default if paid
+  every launch.
 - [ ] Eliminate or amortize compact-input setup cost. This becomes a practical
   end-to-end win only if the producer emits compact `x/w` directly, packing is
   fused with existing setup, or packing is reused across repeated consumers.

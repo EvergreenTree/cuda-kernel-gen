@@ -160,14 +160,15 @@ times only the kernel body with CUDA events. This keeps benchmark-specialized
 variants inside their valid input domain without counting host-to-device reset
 copies as kernel time.
 
-Measured on the local NVIDIA L4 with CUDA 12.8:
+Measured on the local NVIDIA L4 with CUDA 12.8. Speedup is relative to the
+strict original problem definition on the same GPU:
 
-| Build / variant | Correct | Time per launch |
-| --- | --- | ---: |
-| Original problem definition | yes | 34.88 ms |
-| Optimized build, original row-stride ablation | yes | 15.03 ms |
-| Optimized build, scalar coalesced ablation | yes | 2.53 ms |
-| Optimized build, vectorized default | yes | 2.31 ms |
+| Build / variant | Correct | Time per launch | Speedup |
+| --- | --- | ---: | ---: |
+| Original problem definition | yes | 34.88 ms | 1.0x |
+| Optimized build, original row-stride ablation | yes | 15.03 ms | 2.3x |
+| Optimized build, scalar coalesced ablation | yes | 2.53 ms | 13.8x |
+| Optimized build, vectorized default | yes | 2.31 ms | 15.1x |
 
 The current default is about `15.1x` faster than the original strict build on
 the local L4.
@@ -175,32 +176,35 @@ the local L4.
 ## Blackwell Results
 
 Measured on the local NVIDIA RTX PRO 6000 Blackwell Server Edition
-(`sm_120`, 188 SMs) with CUDA 13.0:
+(`sm_120`, 188 SMs) with CUDA 13.0. Speedup is relative to the strict original
+problem definition on the same GPU; ABI-changing rows are not drop-in
+replacements for the float in/out default. Expected-fail rows are boundary
+probes, not acceptable winners.
 
-| Build / variant | ABI / role | Correct | Time per launch |
-| --- | --- | --- | ---: |
-| Original problem definition | float in/out | yes | 13.21 ms |
-| Original row-stride ablation | float in/out | yes | 5.67 ms |
-| Scalar coalesced ablation | float in/out | yes | 0.51 ms |
-| Vectorized default | float in/out | yes | 0.31 ms |
-| Fixed-range polynomial / affine family | float in/out | yes | 0.309-0.310 ms |
-| FP16-output affine family | float in, half out | yes | 0.257 ms |
-| Compact `x/w` input + FP16 output | compact float2 in, half out | yes | 0.169 ms |
-| Compact U16 `x/w` input + FP16 output | compact ushort2 in, half out | yes | 0.124 ms |
-| Compact U8 `x/w` input + FP16 output | compact uchar2 in, half out | yes | 0.105 ms |
-| Compact U8 `x/w` input + U8 `x/w` output | custom compact in/out | yes | 0.025 ms |
-| Decode compact U8 output to float | custom U8 in, float out | yes | 0.197 ms |
-| Downstream projection from float output | float4 in, score out | yes | 0.213 ms |
-| Downstream projection from compact U8 output | custom U8 in, score out | yes | 0.027 ms |
-| GPU pack + compact `x/w` pipeline | float in, half out | yes | 0.445 ms |
-| GPU pack + compact U8 `x/w` pipeline | float in, half out | yes | 0.310 ms |
-| GPU pack + compact U8 in/out pipeline | float in, custom U8 out | yes | 0.250 ms |
-| GPU pack + compact U8 in/out + float decode | float in/out via custom path | yes | 0.436 ms |
-| Float output + downstream projection pipeline | float in/out + score | yes | 0.579 ms |
-| GPU pack + compact U8 in/out + compact projection | float in, custom U8 + score | yes | 0.287 ms |
-| Compact FP16 `x/w` input boundary | compact half2 in, half out | expected no | 0.121 ms |
-| Compact U4 `x/w` input boundary | packed nibbles in, half out | expected no | 0.100 ms |
-| BF16-output affine boundary | float in, BF16 out | expected no | 0.257 ms |
+| Build / variant | ABI / role | Correct | Time per launch | Speedup |
+| --- | --- | --- | ---: | ---: |
+| Original problem definition | float in/out | yes | 13.21 ms | 1.0x |
+| Original row-stride ablation | float in/out | yes | 5.67 ms | 2.3x |
+| Scalar coalesced ablation | float in/out | yes | 0.51 ms | 25.9x |
+| Vectorized default | float in/out | yes | 0.31 ms | 42.6x |
+| Fixed-range polynomial / affine family | float in/out | yes | 0.309-0.310 ms | 42.6x |
+| FP16-output affine family | float in, half out | yes | 0.257 ms | 51.4x |
+| Compact `x/w` input + FP16 output | compact float2 in, half out | yes | 0.169 ms | 78.2x |
+| Compact U16 `x/w` input + FP16 output | compact ushort2 in, half out | yes | 0.124 ms | 106.5x |
+| Compact U8 `x/w` input + FP16 output | compact uchar2 in, half out | yes | 0.105 ms | 125.8x |
+| Compact U8 `x/w` input + U8 `x/w` output | custom compact in/out | yes | 0.025 ms | 528.4x |
+| Decode compact U8 output to float | custom U8 in, float out | yes | 0.197 ms | 67.1x |
+| Downstream projection from float output | float4 in, score out | yes | 0.213 ms | 62.0x |
+| Downstream projection from compact U8 output | custom U8 in, score out | yes | 0.027 ms | 489.3x |
+| GPU pack + compact `x/w` pipeline | float in, half out | yes | 0.445 ms | 29.7x |
+| GPU pack + compact U8 `x/w` pipeline | float in, half out | yes | 0.310 ms | 42.6x |
+| GPU pack + compact U8 in/out pipeline | float in, custom U8 out | yes | 0.250 ms | 52.8x |
+| GPU pack + compact U8 in/out + float decode | float in/out via custom path | yes | 0.436 ms | 30.3x |
+| Float output + downstream projection pipeline | float in/out + score | yes | 0.579 ms | 22.8x |
+| GPU pack + compact U8 in/out + compact projection | float in, custom U8 + score | yes | 0.287 ms | 46.0x |
+| Compact FP16 `x/w` input boundary | compact half2 in, half out | expected no | 0.121 ms | 109.2x |
+| Compact U4 `x/w` input boundary | packed nibbles in, half out | expected no | 0.100 ms | 132.1x |
+| BF16-output affine boundary | float in, BF16 out | expected no | 0.257 ms | 51.4x |
 
 The durable hypotheses, profiler mechanisms, and stop/revisit decisions live in
 the Experiment Ledger below; this section is intentionally just the scoreboard.
@@ -260,6 +264,32 @@ directories:
 - `index.html`: concise visual report with speedup, memory handling, occupancy,
   and resource-footprint charts.
 - `poly_fits.json`: fixed-range polynomial search results and validation error.
+
+## Glossary
+
+| Term | Meaning in this repo |
+| --- | --- |
+| ABI | Application Binary Interface. Here it mostly means the kernel's data contract: float in/out, FP16 output, compact U8 x/w output, and so on. |
+| AoS | Array of Structures. The original float grid is a flat array, but the optimized variants treat repeated four-lane groups as an AoS-like record. |
+| BF16 | Bfloat16, a 16-bit float format with fewer mantissa bits than FP16. It is fast and compact, but missed this benchmark's `1e-3` tolerance. |
+| CC | Compute Capability, NVIDIA's GPU architecture version. Blackwell here reports `12.0`. |
+| CUDA Graph | Captured launch graph that can reduce CPU submission overhead for many small repeated launches. |
+| DRAM | Device global memory. High DRAM throughput with low SM throughput means byte traffic, not arithmetic, is the likely wall. |
+| FP16 | IEEE half precision. The FP16-output path passes tolerance and reduces write traffic. |
+| H2D | Host-to-device copy. The timing harness resets device input before each measured launch, but CUDA event timing excludes that copy. Pipeline rows include GPU-side setup such as packing. |
+| ILP | Instruction-Level Parallelism. More independent work per thread can hide latency, but the tested ILP path increased register pressure and lost on this problem. |
+| L1/L2 sectors | Nsight memory transaction counters. They are more reliable than nominal byte counts when checking coalescing and sparse loads. |
+| NCU | Nsight Compute, NVIDIA's kernel profiler. `make profile-space NCU_PREFIX=sudo PROFILE_FLAGS="--memory-details"` collects the important memory counters. |
+| PTX | NVIDIA's virtual GPU instruction format. Driver JIT can compile PTX to native code for the installed GPU. |
+| SASS | Native GPU machine code emitted by ptxas or the driver JIT. Use it to confirm actual load/store width and transcendental instructions. |
+| Score | The synthetic downstream projection used to test whether compact U8 output can be consumed directly without expanding the whole grid back to float. |
+| SFU | Special Function Unit. It handles operations like sine, cosine, reciprocal, and transcendental math. |
+| SM | Streaming Multiprocessor. Blackwell timing here was on a 188-SM device. |
+| Tensor Core | Matrix-multiply hardware. It is idle in the current pointwise kernel and only becomes relevant if the problem is reformulated as enough matrix-shaped work. |
+| TMA | Tensor Memory Accelerator. Useful for tiled producer-consumer memory movement, not for this one-load/one-store pointwise kernel. |
+| U4/U8/U16 | Unsigned 4-, 8-, or 16-bit fixed-point encodings used for compact benchmark-specific x/w storage. |
+| WGMMA | Warp-Group Matrix Multiply-Accumulate. Tensor Core path for matrix work; not useful here unless a future formulation creates enough batched polynomial basis work. |
+| x/w | The first and fourth lanes in each four-float group. For this input range, the second and third lanes collapse to constants after approximation, so x/w carry the useful varying data. |
 
 ## Next Moves
 

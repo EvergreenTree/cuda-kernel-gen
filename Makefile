@@ -25,7 +25,7 @@ FATBIN_FLAGS := \
 	-gencode arch=compute_120,code=sm_120 \
 	-gencode arch=compute_120,code=compute_120
 
-.PHONY: all check baseline-check specialized-check bf16-experiment layout-experiment fatbin-check sanitize bench profile-time profile-space profile report profile-quick fit-poly clean
+.PHONY: all check baseline-check specialized-check bf16-experiment layout-experiment fatbin-check sanitize bench profile-time profile-space hardware-report profile report profile-quick fit-poly clean
 
 all: optimized.x
 
@@ -76,14 +76,18 @@ profile-time: bench
 profile-space: optimized.x
 	$(PYTHON) tools/profile.py --dimx $(PROFILE_DIM) --dimy $(PROFILE_DIM) --ncu-prefix "$(NCU_PREFIX)" --output-dir $(REPORT_DIR) $(PROFILE_FLAGS)
 
+hardware-report:
+	$(PYTHON) tools/hardware_report.py --output-dir $(REPORT_DIR)
+
 report:
 	$(PYTHON) tools/render_report.py --output-dir $(REPORT_DIR)
 
-profile: profile-time profile-space report
+profile: profile-time profile-space hardware-report report
 
 profile-quick:
 	$(PYTHON) tools/bench.py --build --runs 1 --nreps 10 --dimx 1024 --dimy 1024 --output-dir $(REPORT_DIR)/quick
 	$(PYTHON) tools/profile.py --dimx 1024 --dimy 1024 --skip-ncu --output-dir $(REPORT_DIR)/quick
+	$(PYTHON) tools/hardware_report.py --output-dir $(REPORT_DIR)/quick
 	$(PYTHON) tools/render_report.py --output-dir $(REPORT_DIR)/quick
 
 fit-poly:

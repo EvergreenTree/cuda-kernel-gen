@@ -71,6 +71,7 @@ def main():
     output_dir = ROOT / args.output_dir
     summary = read_json(output_dir / "summary.json", {})
     space = read_json(output_dir / "space.json", {})
+    hardware = read_json(output_dir / "hardware.json", {})
     variants = summary.get("variants", {})
     default_logical_mib = summary.get("logical_bytes_per_launch", 0) / (1024 * 1024)
 
@@ -158,6 +159,31 @@ def main():
         ["fatbin.x", f"{fmt((binary_sizes.get('fatbin_x_bytes') or 0) / 1024.0)} KiB"],
         ["Default logical traffic / launch", f"{default_logical_mib:.2f} MiB"],
     ]
+    smi = hardware.get("nvidia_smi", {})
+    devices = smi.get("devices", [])
+    device = devices[0] if devices else {}
+    nvcc = hardware.get("nvcc", {})
+    classification = hardware.get("classification", {})
+    speedups = classification.get("variant_speedups", {})
+    hardware_rows = [
+        ["GPU", fmt(device.get("name") or summary.get("gpu", {}).get("name"))],
+        ["Compute Capability", fmt(device.get("compute_capability") or summary.get("gpu", {}).get("compute_capability"))],
+        ["Device Count", fmt(smi.get("device_count"))],
+        ["Memory", fmt_mib(device.get("memory_total_mib") * 1024 * 1024) if device.get("memory_total_mib") else "n/a"],
+        ["Max SM Clock", fmt_unit(device.get("max_sm_clock_mhz"), " MHz", 0)],
+        ["Max Memory Clock", fmt_unit(device.get("max_memory_clock_mhz"), " MHz", 0)],
+        ["Driver", fmt(device.get("driver_version"))],
+        ["NVCC", fmt(nvcc.get("version"))],
+        ["Bottleneck Hint", fmt(classification.get("bottleneck_hint"))],
+        ["Default / FP16 Output", fmt(speedups.get("default_vs_fp16_output"), 2) + "x" if speedups.get("default_vs_fp16_output") else "n/a"],
+        ["FP16 / Compact x/w", fmt(speedups.get("fp16_output_vs_compact_xw"), 2) + "x" if speedups.get("fp16_output_vs_compact_xw") else "n/a"],
+    ]
+    hardware_notes = classification.get("notes", [])
+    hardware_notes_html = (
+        "<ul>" + "".join(f"<li>{html.escape(note)}</li>" for note in hardware_notes) + "</ul>"
+        if hardware_notes
+        else "<p>No hardware notes captured.</p>"
+    )
 
     html_doc = f"""<!doctype html>
 <html lang="en">
@@ -193,6 +219,11 @@ code {{ background: #edf2f5; border-radius: 4px; padding: 1px 4px; }}
 <section>
 <h2>Benchmark Summary</h2>
 {render_table(["Variant", "Correct", "Median Time", "Logical Traffic", "Speedup", "Effective Bandwidth"], summary_rows)}
+</section>
+<section>
+<h2>Hardware Adaptation</h2>
+{render_table(["Item", "Value"], hardware_rows)}
+{hardware_notes_html}
 </section>
 {bar_chart("Time Per Launch", time_items, " ms", digits=4)}
 {bar_chart("Speedup Vs Row-Stride", speed_items, "x")}

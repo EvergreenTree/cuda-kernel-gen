@@ -97,6 +97,13 @@ adds DRAM byte counters and L1/L2 sector counters to `space.json` and the HTML
 report.
 
 ```bash
+make hardware-report
+```
+
+Writes `hardware.json` under `REPORT_DIR`. It records device/toolchain facts
+and adds a lightweight bottleneck hint from the timing and Nsight summaries.
+
+```bash
 make specialized-check
 ```
 
@@ -198,6 +205,7 @@ and the practical takeaway.
 | BF16 output might be cheaper enough while staying inside tolerance | `0.2570 ms`, expected failure; first checked element had `rdiff 0.001955` | BF16 has the same output byte count as FP16 here but too few mantissa bits for the benchmark tolerance | Do not use BF16 unless the tolerance relaxes or output error is judged differently downstream |
 | SASS should confirm what `tan` actually costs | Default vector SASS contains `MUFU.SIN`, `MUFU.COS`, and `MUFU.RCP` in the tangent lane | `__tanf` lowers to sin/cos/reciprocal-like work, so explicit `sincos` sharing is not free across independent lanes | Worth revisiting only if the iterative scalar path becomes the target again |
 | CUDA Graph replay can amortize launch overhead | Not expected to move the full-size timed kernel | The measured kernel body is already about `0.31 ms`; launch overhead is outside the CUDA-event timing loop | Useful for many small launches or end-to-end host overhead, not this main timing |
+| Hardware scale can flip the bottleneck | Report now records GPU count, compute capability, memory size, max clocks, driver, NVCC, and a bottleneck hint | On this Blackwell run, high DRAM pressure plus low SM pressure marks the tuned kernels as memory-throughput bound | Treat every new GPU or problem size as a new measurement point; rerun the profile instead of carrying Blackwell conclusions blindly |
 | Tensor Cores / MMA for polynomial evaluation might use idle units | Not implemented as default; expected to lose at the current fitted degree | The valid approximation is degree `0-1` per lane, so building or storing a Vandermonde-like matrix would add scalar work and memory traffic for a tiny GEMM | Revisit only for high-degree fits, many output functions per input, or a batched layout that amortizes basis construction |
 | TMA, `cp.async`, and shared-memory tiling could overlap memory | Not applicable to the current pointwise path | There is one global read and one global write with no tile reuse | Save these for a problem shape with reuse or producer-consumer tiling |
 
@@ -210,6 +218,8 @@ directories:
 - `summary.json`: median/min/max timing and speedup summary.
 - `space.json`: ptxas register/spill counts, binary sizes, logical memory
   traffic, and selected Nsight Compute metrics.
+- `hardware.json`: GPU/toolchain facts, bottleneck hint, and hardware-specific
+  adaptation notes.
 - optional memory-detail Nsight counters: DRAM read/write bytes, L1 global
   load/store sectors, and L2 read/write sectors when `--memory-details` is set.
 - `index.html`: concise visual report with speedup, memory handling, occupancy,
@@ -231,9 +241,13 @@ directories:
   nominal input bytes. Compact `x/w` input is the current upper bound.
 - [x] Measure compact-input setup cost. GPU pack plus compact consume is slower
   than the default if starting from the original float grid.
+- [x] Add hardware-aware report metadata so future GPUs are classified from
+  their own timings and Nsight counters.
 - [ ] Eliminate or amortize compact-input setup cost. This becomes a practical
   end-to-end win only if the producer emits compact `x/w` directly, packing is
   fused with existing setup, or packing is reused across repeated consumers.
+- [ ] Re-run `make profile NCU_PREFIX=sudo` on every materially different GPU,
+  CUDA version, clock policy, or problem size before applying this ledger.
 - [ ] Use CUDA Graph replay only for many small launches or end-to-end host
   overhead studies.
 - [ ] Add multi-GPU row partitioning only when arrays exceed one GPU or scaling
@@ -254,6 +268,9 @@ directories:
   paper. Nominal bytes have already misled us once.
 - Label upper-bound layout experiments clearly. Compact `x/w` is excellent
   kernel-side, but not equivalent to a free end-to-end win.
+- For hardware portability, compare mechanisms, not just winners. A smaller GPU
+  may become launch/latency sensitive; a higher-bandwidth GPU may expose math or
+  occupancy again.
 - Keep commits atomic by axis: launch geometry, approximation, ABI/storage,
   profiling/reporting, and documentation.
 

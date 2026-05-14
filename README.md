@@ -190,6 +190,7 @@ Measured on the local NVIDIA RTX PRO 6000 Blackwell Server Edition
 | GPU pack + compact `x/w` pipeline | float in, half out | yes | 0.445 ms |
 | GPU pack + compact U8 `x/w` pipeline | float in, half out | yes | 0.310 ms |
 | Compact FP16 `x/w` input boundary | compact half2 in, half out | expected no | 0.121 ms |
+| Compact U4 `x/w` input boundary | packed nibbles in, half out | expected no | 0.100 ms |
 | BF16-output affine boundary | float in, BF16 out | expected no | 0.257 ms |
 
 The durable hypotheses, profiler mechanisms, and stop/revisit decisions live in
@@ -217,6 +218,7 @@ and the practical takeaway.
 | Compact FP16 input might cut compact `x/w` traffic again | `0.1210 ms`, expected failure; first checked miss had `rdiff 0.001544` | Same logical traffic as U16 fixed-point, but FP16 quantization near `1.0` is too coarse for the tangent-sensitive lane | Do not use raw FP16 input under the current tolerance |
 | Compact U16 fixed-point input can keep 16-bit storage and tolerance | `0.1243 ms` median over 3 full-size runs, correctness passes | Nsight reports `93.312 us`, `88.62%` DRAM throughput, `13.42%` SM throughput, `67 MB` DRAM reads, `63 MB` DRAM writes, and `2,097,152` L1 load sectors | Strong 16-bit storage result, but U8 supersedes it as the fastest kernel-side variant |
 | Compact U8 fixed-point input can cut input sectors again | `0.1051 ms` median over 3 full-size runs, correctness passes | Nsight reports `76.896 us`, `78.11%` DRAM throughput, `17.16%` SM throughput, `34 MB` DRAM reads, `63 MB` DRAM writes, and `1,048,576` L1 load sectors | New fastest kernel-side result; output writes now dominate even more strongly |
+| Packed U4 fixed-point input is below the tolerance floor | `0.0998 ms`, expected failure; first checked miss had `rdiff 0.001280` | Nsight reports `68.096 us`, `69.67%` DRAM throughput, `20.41%` SM throughput, `17 MB` DRAM reads, `60 MB` DRAM writes, and `524,288` L1 load sectors | U4 proves there is one more small speed step, but the tangent lane exceeds tolerance; keep U8 as the lowest valid input encoding |
 | GPU packing from original AoS can feed compact input | Pack alone `0.2565 ms`; pack plus compact consumer `0.4448 ms` | Pack kernel still reads `268 MB`, writes about `81 MB`, and requests `16,777,216` L1 load sectors | Not an end-to-end win when starting from the original float grid; compact layout must come from upstream or amortization |
 | GPU packing from original AoS can feed compact U16 input | Pack alone `0.2115 ms`; pack plus U16 compact consumer `0.3535 ms` | Nsight on the U16 pack reports `210.272 us`, `92.81%` DRAM throughput, `268 MB` reads, `43 MB` writes, `16,777,216` L1 load sectors, and `2,097,152` L1 store sectors | Better than FP32 compact packing, but still slower than the `0.31 ms` default when setup is paid every launch |
 | GPU packing from original AoS can feed compact U8 input | Pack alone `0.1826 ms`; pack plus U8 compact consumer `0.3097 ms` median over 3 full-size runs | Nsight on the U8 pack reports `196.320 us`, `92.78%` DRAM throughput, `268 MB` reads, `23 MB` writes, `16,777,216` L1 load sectors, and `1,048,576` L1 store sectors | This reaches parity with the default when setup is paid every launch; it becomes a win only if packing is fused, reused, or provided upstream |
@@ -278,12 +280,15 @@ directories:
 - [x] Measure U8 compact-input setup cost. GPU pack plus U8 compact consume
   reaches parity with the default but is not a durable win when setup is paid
   every launch.
-- [ ] Probe below U8 only as a boundary experiment. A packed 4-bit x/w input
+- [x] Probe below U8 only as a boundary experiment. A packed 4-bit x/w input
   would save one more byte per four outputs, but the tangent lane may exceed the
   `1e-3` tolerance.
 - [ ] Eliminate or amortize compact-input setup cost. This becomes a practical
   end-to-end win only if the producer emits compact U8 `x/w` directly, packing
   is fused with existing setup, or packing is reused across repeated consumers.
+- [ ] Explore output encoding below FP16 only as an explicit ABI-changing path.
+  With U8 input, output writes are the dominant remaining traffic; per-lane
+  fixed-point output may help if downstream can decode custom storage.
 - [ ] Re-run `make profile NCU_PREFIX=sudo` on every materially different GPU,
   CUDA version, clock policy, or problem size before applying this ledger.
 - [ ] Implement and benchmark a true multi-GPU runner only when a host has

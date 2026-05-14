@@ -135,9 +135,9 @@ def build_memory_models(dimx, dimy):
     return [
         {
             "name": "current_harness_device_allocations",
-            "bytes_per_element": 10.5,
-            "total_bytes": int(elements * 10.5),
-            "note": "Current benchmark allocates float input/output plus FP16 output and float, FP16, u16, and u8 compact x/w scratch buffers.",
+            "bytes_per_element": 10.75,
+            "total_bytes": int(elements * 10.75),
+            "note": "Current benchmark allocates float input/output plus FP16 output and float, FP16, u16, u8, and u4 compact x/w scratch buffers.",
         },
         {
             "name": "float_inplace_default",
@@ -168,6 +168,12 @@ def build_memory_models(dimx, dimy):
             "bytes_per_element": 2.5,
             "total_bytes": int(elements * 2.5),
             "note": "Aggressively quantized compact consumer: two 8-bit x/w inputs per four outputs plus FP16 output.",
+        },
+        {
+            "name": "compact_u4_xw_input_fp16_output_expected_fail",
+            "bytes_per_element": 2.25,
+            "total_bytes": int(elements * 2.25),
+            "note": "Boundary-only compact consumer: two 4-bit x/w inputs per four outputs plus FP16 output; expected to miss tolerance.",
         },
     ]
 

@@ -68,6 +68,10 @@ KERNEL_VARIANTS = (
         "kernel_compact_u8_xw_affine_half_output",
         "compact_u8_xw_affine_half_output_experimental",
     ),
+    (
+        "kernel_compact_u4_xw_affine_half_output",
+        "compact_u4_xw_affine_half_output_expected_fail",
+    ),
     ("kernel_pack_xw_from_float4", "pack_xw_setup_experimental"),
     ("kernel_pack_u16_xw_from_float4", "pack_u16_xw_setup_experimental"),
     ("kernel_pack_u8_xw_from_float4", "pack_u8_xw_setup_experimental"),

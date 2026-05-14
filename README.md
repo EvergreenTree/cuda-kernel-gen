@@ -283,7 +283,7 @@ directories:
   closer than the FP32 compact path but still slower than the default if paid
   every launch.
 - [x] Test U8 compact input storage. It passes tolerance and becomes the fastest
-  kernel-side variant, with output writes now the dominant remaining traffic.
+  FP16-output kernel-side variant, with output writes then the dominant traffic.
 - [x] Measure U8 compact-input setup cost. GPU pack plus U8 compact consume
   reaches parity with the default but is not a durable win when setup is paid
   every launch.
@@ -298,7 +298,7 @@ directories:
   fixed-point output helps if downstream can decode custom storage.
 - [x] Measure original-AoS setup plus custom U8 output. U8 input packing reached
   parity with the default when paired with FP16 output; pairing it with custom
-  U8 output may create a true end-to-end win.
+  U8 output creates a true end-to-end win when consumers stay compact.
 - [x] If custom U8 output becomes the practical path, add a decode/consumer
   microbenchmark so the report includes downstream cost, not only producer cost.
 - [ ] Benchmark a realistic compact downstream consumer before committing to the

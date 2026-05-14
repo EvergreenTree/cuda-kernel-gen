@@ -1,5 +1,11 @@
 NVCC ?= $(shell command -v nvcc 2>/dev/null || printf /usr/local/cuda/bin/nvcc)
 COMPUTE_SANITIZER ?= $(shell command -v compute-sanitizer 2>/dev/null || printf /usr/local/cuda/bin/compute-sanitizer)
+PYTHON ?= python3
+REPORT_DIR ?= reports/latest
+BENCH_NREPS ?= 100
+BENCH_RUNS ?= 3
+PROFILE_DIM ?= 8192
+NCU_PREFIX ?=
 
 OPT_SRC := src/cuda_prog.cu
 PROBLEM_SRC := problem/cuda_prog_unoptimized.cu
@@ -15,7 +21,7 @@ FATBIN_FLAGS := \
 	-gencode arch=compute_120,code=sm_120 \
 	-gencode arch=compute_120,code=compute_120
 
-.PHONY: all check baseline-check fatbin-check sanitize clean
+.PHONY: all check baseline-check fatbin-check sanitize bench profile-time profile-space profile report profile-quick clean
 
 all: optimized.x
 
@@ -39,6 +45,24 @@ fatbin-check: fatbin.x
 
 sanitize: optimized.x
 	$(COMPUTE_SANITIZER) --tool memcheck --kernel-name regex=kernel_vector4_fast --launch-count 1 --error-exitcode 99 ./optimized.x
+
+bench:
+	$(PYTHON) tools/bench.py --build --runs $(BENCH_RUNS) --nreps $(BENCH_NREPS) --dimx $(PROFILE_DIM) --dimy $(PROFILE_DIM) --output-dir $(REPORT_DIR)
+
+profile-time: bench
+
+profile-space: optimized.x
+	$(PYTHON) tools/profile.py --dimx $(PROFILE_DIM) --dimy $(PROFILE_DIM) --ncu-prefix "$(NCU_PREFIX)" --output-dir $(REPORT_DIR)
+
+report:
+	$(PYTHON) tools/render_report.py --output-dir $(REPORT_DIR)
+
+profile: profile-time profile-space report
+
+profile-quick:
+	$(PYTHON) tools/bench.py --build --runs 1 --nreps 10 --dimx 1024 --dimy 1024 --output-dir $(REPORT_DIR)/quick
+	$(PYTHON) tools/profile.py --dimx 1024 --dimy 1024 --skip-ncu --output-dir $(REPORT_DIR)/quick
+	$(PYTHON) tools/render_report.py --output-dir $(REPORT_DIR)/quick
 
 clean:
 	rm -f *.x

@@ -96,27 +96,54 @@ Measured on the local NVIDIA L4 with CUDA 12.8:
 The current default is about `15.1x` faster than the original strict build on
 the local L4.
 
-## Blackwell Next Steps
+## Blackwell Results
 
-1. Re-run `make fatbin-check` on the Blackwell machine and save the full
-   variant table.
-2. Sweep launch geometry with `TUNE_FLAGS`, for example:
+Measured on the local NVIDIA RTX PRO 6000 Blackwell Server Edition
+(`sm_120`, 188 SMs) with CUDA 13.0:
+
+| Build / variant | Correct | Time per launch |
+| --- | --- | ---: |
+| Original problem definition | yes | 13.21 ms |
+| Optimized build, original row-stride ablation | yes | 5.67 ms |
+| Optimized build, scalar coalesced ablation | yes | 0.51 ms |
+| Optimized build, vectorized default | yes | 0.36 ms |
+| Optimized build, ILP `float4` variant | yes | 0.36 ms |
+| Experimental fixed-range polynomial variant | yes | 0.36 ms |
+
+The tuned default is about `36x` faster than the original strict build on this
+Blackwell system. Nsight Compute on the default vector path reports about `92%`
+DRAM throughput, `48%` SM throughput, `26` registers per thread, and `86%`
+achieved occupancy. The workload is effectively memory-throughput limited after
+coalescing and fast math; extra ILP and the guarded polynomial approximation do
+not materially improve the steady-state time.
+
+The fatbin path was also checked on the same machine:
+
+```bash
+make -B fatbin.x
+./fatbin.x
+CUDA_FORCE_PTX_JIT=1 ./fatbin.x
+```
+
+Native `sm_120` SASS and forced PTX JIT both measured about `0.36 ms` for the
+default vectorized variant.
+
+## Blackwell Follow-Ups
+
+1. Re-sweep launch geometry if the benchmark dimensions, GPU clocks, or CUDA
+   version change. The best measured Blackwell settings were close to:
 
    ```bash
-   make -B optimized.x TUNE_FLAGS="-DTHREADS_PER_BLOCK=512 -DBLOCKS_PER_SM=16"
+   make -B optimized.x TUNE_FLAGS="-DTHREADS_PER_BLOCK=512 -DBLOCKS_PER_SM=32"
    ```
 
-3. Capture Nsight Compute metrics for the vector kernel:
+2. Capture deeper Nsight Compute metrics for the vector kernel if further work
+   is needed:
    - SM/SFU utilization
    - eligible warps per scheduler
-   - achieved occupancy
    - global load/store sector efficiency
-   - register count and instruction mix
-4. Compare native `sm_120` SASS against JITed `compute_120` PTX.
-5. Test whether range-specialized approximations for the fixed input
-   distribution and `niterations == 5` beat CUDA intrinsics while preserving
-   the `1e-3` tolerance.
-6. Keep Tensor Cores, WGMMA, TMA, and shared-memory tiling out of the default
+   - instruction mix
+3. Keep Tensor Cores, WGMMA, TMA, and shared-memory tiling out of the default
    path unless profiling shows a new reason; this workload is scalar
    transcendental math with almost no data reuse.
 

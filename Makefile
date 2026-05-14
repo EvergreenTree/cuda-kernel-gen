@@ -1,4 +1,5 @@
-NVCC ?= nvcc
+NVCC ?= $(shell command -v nvcc 2>/dev/null || printf /usr/local/cuda/bin/nvcc)
+COMPUTE_SANITIZER ?= $(shell command -v compute-sanitizer 2>/dev/null || printf /usr/local/cuda/bin/compute-sanitizer)
 
 OPT_SRC := src/cuda_prog.cu
 PROBLEM_SRC := problem/cuda_prog_unoptimized.cu
@@ -37,7 +38,7 @@ fatbin-check: fatbin.x
 	./fatbin.x
 
 sanitize: optimized.x
-	compute-sanitizer --tool memcheck --kernel-name regex=kernel_vector4_fast --launch-count 1 --error-exitcode 99 ./optimized.x
+	$(COMPUTE_SANITIZER) --tool memcheck --kernel-name regex=kernel_vector4_fast --launch-count 1 --error-exitcode 99 ./optimized.x
 
 clean:
 	rm -f *.x

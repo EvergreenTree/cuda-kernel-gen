@@ -22,6 +22,10 @@ def fmt(value, digits=2):
     return f"{value:.{digits}f}" if isinstance(value, float) else str(value)
 
 
+def fmt_unit(value, unit, digits=2):
+    return "n/a" if value is None else f"{fmt(value, digits)}{unit}"
+
+
 def bar_chart(title, items, unit="", width=760, row_height=30, digits=2):
     items = [(label, value) for label, value in items if value is not None]
     if not items:
@@ -104,10 +108,16 @@ def main():
             if ncu_metrics.get("duration_ns") is None
             else f"{fmt(ncu_metrics.get('duration_ns') / 1000.0)} us",
         ],
-        ["DRAM Throughput", f"{fmt(ncu_metrics.get('dram_throughput_pct'))}%"],
-        ["Memory Throughput", f"{fmt(ncu_metrics.get('memory_throughput_pct'))}%"],
-        ["SM Throughput", f"{fmt(ncu_metrics.get('sm_throughput_pct'))}%"],
-        ["Achieved Occupancy", f"{fmt(ncu_metrics.get('achieved_occupancy_pct'))}%"],
+        ["DRAM Throughput", fmt_unit(ncu_metrics.get("dram_throughput_pct"), "%")],
+        [
+            "Memory Throughput",
+            fmt_unit(ncu_metrics.get("memory_throughput_pct"), "%"),
+        ],
+        ["SM Throughput", fmt_unit(ncu_metrics.get("sm_throughput_pct"), "%")],
+        [
+            "Achieved Occupancy",
+            fmt_unit(ncu_metrics.get("achieved_occupancy_pct"), "%"),
+        ],
         ["Active Warps / SM", fmt(ncu_metrics.get("active_warps_per_sm"))],
         ["Block x Grid", f"{fmt(ncu_metrics.get('block_size'), 0)} x {fmt(ncu_metrics.get('grid_size'), 0)}"],
     ]

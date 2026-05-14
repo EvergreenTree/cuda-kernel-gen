@@ -243,6 +243,7 @@ and the practical takeaway.
 | SASS should confirm what `tan` actually costs | Default vector SASS contains `MUFU.SIN`, `MUFU.COS`, and `MUFU.RCP` in the tangent lane | `__tanf` lowers to sin/cos/reciprocal-like work, so explicit `sincos` sharing is not free across independent lanes | Worth revisiting only if the iterative scalar path becomes the target again |
 | CUDA Graph replay can amortize launch overhead | On `64 x 64`, stream H2D+kernel replay measured `0.014572 ms`; graph replay measured `0.013954 ms` | Graph replay trims host submission overhead, but the tested end-to-end replay still includes the H2D copy and tiny kernel work | Useful only for many small launches; it is not a lever for the full-size event-timed kernel |
 | Hardware scale can flip the bottleneck | Report now records GPU count, compute capability, memory size, max clocks, driver, NVCC, and a bottleneck hint | On this Blackwell run, high DRAM pressure plus low SM pressure marks the tuned kernels as memory-throughput bound | Treat every new GPU or problem size as a new measurement point; rerun the profile instead of carrying Blackwell conclusions blindly |
+| Profiling must cover both time and space | `make profile`, `make profile-space`, `make hardware-report`, and `make report` now emit timing, Nsight, hardware, and visual artifacts | `summary.json` stores medians/speedups, `space.json` stores ptxas plus Nsight facts, `hardware.json` stores device/scaling facts, and `index.html` visualizes the practical deltas | Rerun the report bundle for every serious result; do not rely on stopwatch-only comparisons |
 | Multi-GPU row partitioning should be gated by capacity or throughput need | Current host has one GPU; the current harness model is `784 MiB` device memory for `8192 x 8192` | `hardware.json` now records memory models, 85% headroom checks, and contiguous row-shard ranges from `nvidia-smi` | Do not implement a multi-GPU runner on this box; use the planner to decide when a future host justifies it |
 | Tensor Cores / MMA for polynomial evaluation might use idle units | Not implemented as default; expected to lose at the current fitted degree | The valid approximation is degree `0-1` per lane, so building or storing a Vandermonde-like matrix would add scalar work and memory traffic for a tiny GEMM | Revisit only for high-degree fits, many output functions per input, or a batched layout that amortizes basis construction |
 | TMA, `cp.async`, and shared-memory tiling could overlap memory | Not applicable to the current pointwise path | There is one global read and one global write with no tile reuse | Save these for a problem shape with reuse or producer-consumer tiling |
@@ -291,71 +292,44 @@ directories:
 | WGMMA | Warp-Group Matrix Multiply-Accumulate. Tensor Core path for matrix work; not useful here unless a future formulation creates enough batched polynomial basis work. |
 | x/w | The first and fourth lanes in each four-float group. For this input range, the second and third lanes collapse to constants after approximation, so x/w carry the useful varying data. |
 
-## Next Moves
+## Forward Plan
 
-- [x] Re-sweep launch geometry on Blackwell. Best setting stayed near
-  `THREADS_PER_BLOCK=512`, `BLOCKS_PER_SM=32`.
-- [x] Capture Nsight basic metrics for the default vector kernel.
-- [x] Add an optional Nsight memory-detail pass for DRAM bytes and L1/L2 sectors.
-- [x] Fit benchmark-specialized polynomials and reduce them to sparse affine
-  where tolerance allows.
-- [x] Test FP16 output. It is the current best ABI-changing speed path.
-- [x] Test packed four-half output stores. It ties the two-`half2` path.
-- [x] Test BF16 output. It is too coarse for the `1e-3` tolerance.
-- [x] Test setup/layout changes that reduce actual input sectors, not just
-  nominal input bytes. Compact U8 `x/w` input is the current upper bound.
-- [x] Measure compact-input setup cost. GPU pack plus compact consume is slower
-  than the default if starting from the original float grid.
-- [x] Add hardware-aware report metadata so future GPUs are classified from
-  their own timings and Nsight counters.
-- [x] Test CUDA Graph replay on many small H2D-copy-plus-kernel launches. It
-  helps only modestly for the measured `64 x 64` replay case.
-- [x] Add a multi-GPU feasibility and row-partition planner to the hardware
-  report. The current Blackwell host has one GPU, so this is a portability gate
-  rather than a measured scaling result.
-- [x] Test 16-bit compact input storage. Raw FP16 x/w fails tolerance, while U16
-  fixed-point x/w passes and becomes the fastest kernel-side variant.
-- [x] Measure U16 compact-input setup cost. GPU pack plus U16 compact consume is
-  closer than the FP32 compact path but still slower than the default if paid
-  every launch.
-- [x] Test U8 compact input storage. It passes tolerance and becomes the fastest
-  FP16-output kernel-side variant, with output writes then the dominant traffic.
-- [x] Measure U8 compact-input setup cost. GPU pack plus U8 compact consume
-  reaches parity with the default but is not a durable win when setup is paid
-  every launch.
-- [x] Probe below U8 only as a boundary experiment. A packed 4-bit x/w input
-  would save one more byte per four outputs, but the tangent lane may exceed the
-  `1e-3` tolerance.
-- [x] Close the FP16-output compact setup question for this machine. Without
-  the custom U8 output ABI, GPU packing only reaches parity with the default
-  when paid every launch; it needs upstream/fused/amortized packing to become a
-  durable win.
-- [x] Explore output encoding below FP16 only as an explicit ABI-changing path.
-  With U8 input, output writes are the dominant remaining traffic; per-lane
-  fixed-point output helps if downstream can decode custom storage.
-- [x] Measure original-AoS setup plus custom U8 output. U8 input packing reached
-  parity with the default when paired with FP16 output; pairing it with custom
-  U8 output creates a true end-to-end win when consumers stay compact.
-- [x] If custom U8 output becomes the practical path, add a decode/consumer
-  microbenchmark so the report includes downstream cost, not only producer cost.
-- [x] Benchmark a realistic compact downstream consumer before committing to the
-  custom U8 output ABI. Direct compact consumption is about `7.8x` faster than a
-  float-output projection, and the setup-paid compact pipeline is about `2.0x`
-  faster than the float-output pipeline when the consumer stays compact.
+The completed Blackwell checklist has been retired because its facts now live in
+the scoreboard or Experiment Ledger above. New work should start from the target
+hardware, not from the stale order of the old checklist.
 
-## Next-Machine Gates
+1. Rebaseline the next machine.
+   Run `make profile NCU_PREFIX=sudo PROFILE_FLAGS="--memory-details"` and
+   preserve the generated `summary.json`, `space.json`, `hardware.json`, and
+   `index.html` before changing code.
 
-- Re-run `make profile NCU_PREFIX=sudo` on every materially different GPU, CUDA
-  version, clock policy, or problem size before applying this ledger.
-- Start the next host with `make report NCU_PREFIX=sudo PROFILE_FLAGS="--memory-details"`
-  and compare `hardware.json` bottleneck hints before changing code.
-- Re-check the compact consumer path first: the current best specialized axis is
-  not "custom output" alone, but custom output plus a consumer that stays compact.
-- Implement and benchmark a true multi-GPU runner only when a host has multiple
-  GPUs and capacity or throughput goals justify copy/merge overhead.
-- Revisit Tensor Cores/MMA only if a future formulation has high-degree basis
-  work, many output functions per input, or a batched layout that amortizes basis
-  construction.
+2. Classify the new bottleneck.
+   Compare `hardware.json` with the Blackwell ledger. If the target is still
+   memory-throughput bound, focus on byte/sector reduction. If it becomes
+   compute-, SFU-, occupancy-, or launch-sensitive, reopen only the matching
+   ledger rows.
+
+3. Keep ABI decisions explicit.
+   Treat the float in/out vector kernel as the semantic-preserving baseline.
+   Treat FP16 output, compact U8 input/output, and compact downstream consumers
+   as separate ABI tracks with their own result rows.
+
+4. Re-test the compact consumer path early.
+   On Blackwell, custom U8 output only pays off when the next stage consumes
+   compact `x/w` directly. Re-measure the float projection, compact projection,
+   float pipeline, and setup-paid compact pipeline before committing to that ABI
+   on another GPU.
+
+5. Add one target-machine results section.
+   Do not overwrite the Blackwell table. Add a new concise scoreboard plus any
+   new ledger rows, and record whether each old conclusion held, flipped, or was
+   not applicable.
+
+6. Gate larger engineering work on evidence.
+   Implement multi-GPU row partitioning only on a multi-GPU host with capacity
+   pressure or throughput goals. Revisit Tensor Cores, TMA, or `cp.async` only
+   if the problem formulation changes enough to create matrix-shaped work or
+   reusable tiles.
 
 ## Iteration Tips
 

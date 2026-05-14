@@ -36,6 +36,15 @@ KERNEL_VARIANTS = (
         "kernel_vector4_affine_loaded",
         "vector4_affine_loaded_fixed_range_experimental",
     ),
+    (
+        "kernel_vector4_affine_half_output_loaded",
+        "vector4_affine_half_output_loaded_experimental",
+    ),
+    (
+        "kernel_vector4_affine_half_output_sparse",
+        "vector4_affine_half_output_sparse_experimental",
+    ),
+    ("kernel_scalar_fast_half_output", "scalar_fast_half_output_fallback"),
     ("kernel_vector4_fast_dynamic", "vector4_dynamic_fallback"),
     ("kernel_scalar_coalesced_dynamic", "scalar_dynamic_fallback"),
 )
@@ -56,6 +65,15 @@ NCU_METRICS = {
     "waves_per_sm": "launch__waves_per_multiprocessor",
     "thread_count": "launch__thread_count",
     "sm_count": "launch__sm_count",
+}
+
+NCU_MEMORY_METRICS = {
+    "dram_read_bytes": "dram__bytes_op_read.sum",
+    "dram_write_bytes": "dram__bytes_op_write.sum",
+    "l1_global_load_sectors": "l1tex__t_sectors_pipe_lsu_mem_global_op_ld.sum",
+    "l1_global_store_sectors": "l1tex__t_sectors_pipe_lsu_mem_global_op_st.sum",
+    "l2_read_sectors": "lts__t_sectors_op_read.sum",
+    "l2_write_sectors": "lts__t_sectors_op_write.sum",
 }
 
 
@@ -107,7 +125,7 @@ def parse_ptxas(text):
     return variants
 
 
-def parse_ncu_csv(text):
+def parse_ncu_csv(text, metric_map=NCU_METRICS):
     csv_lines = [line for line in text.splitlines() if line.startswith('"')]
     if len(csv_lines) < 3:
         raise ValueError("Nsight Compute CSV did not contain a raw metric table")
@@ -117,7 +135,7 @@ def parse_ncu_csv(text):
     data = reader[2] if len(reader) > 2 else reader[1]
     row = dict(zip(header, data))
     metrics = {}
-    for name, key in NCU_METRICS.items():
+    for name, key in metric_map.items():
         value = row.get(key)
         if value in (None, ""):
             continue
@@ -148,6 +166,7 @@ def main():
     parser.add_argument("--kernel-regex", default="kernel_vector4_fast")
     parser.add_argument("--ncu", default="/opt/nvidia/nsight-compute/2025.3.0/ncu")
     parser.add_argument("--ncu-prefix", default=os.environ.get("NCU_PREFIX", ""))
+    parser.add_argument("--memory-details", action="store_true")
     parser.add_argument("--skip-ncu", action="store_true")
     parser.add_argument("--skip-ptxas", action="store_true")
     args = parser.parse_args()
@@ -204,6 +223,45 @@ def main():
                     "raw": "ncu_raw.csv",
                     "command": result["ncu"]["command"],
                 }
+                if args.memory_details:
+                    memory_ncu_cmd = [
+                        args.ncu,
+                        "--metrics",
+                        ",".join(NCU_MEMORY_METRICS.values()),
+                        "--page",
+                        "raw",
+                        "--csv",
+                        "--kernel-name",
+                        f"regex:{args.kernel_regex}",
+                        "--launch-count",
+                        "1",
+                        args.binary,
+                    ]
+                    memory_cmd = shlex.split(args.ncu_prefix) + memory_ncu_cmd
+                    memory_code, memory_text = run(memory_cmd)
+                    (output_dir / "ncu_memory_raw.csv").write_text(memory_text)
+                    memory_result = {
+                        "raw": "ncu_memory_raw.csv",
+                        "command": " ".join(
+                            shlex.quote(part) for part in memory_cmd
+                        ),
+                    }
+                    if memory_code == 0:
+                        try:
+                            memory_result["status"] = "ok"
+                            memory_result["metrics"] = parse_ncu_csv(
+                                memory_text, NCU_MEMORY_METRICS
+                            )
+                        except ValueError as exc:
+                            memory_result["status"] = "parse_failed"
+                            memory_result["error"] = str(exc)
+                    else:
+                        memory_result["status"] = "failed"
+                        memory_result["error"] = (
+                            "Nsight Compute memory-detail pass failed; "
+                            "inspect ncu_memory_raw.csv"
+                        )
+                    result["ncu"]["memory_details"] = memory_result
             except ValueError as exc:
                 result["ncu"]["status"] = "parse_failed"
                 result["ncu"]["error"] = str(exc)

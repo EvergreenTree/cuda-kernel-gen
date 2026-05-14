@@ -26,6 +26,10 @@ def fmt_unit(value, unit, digits=2):
     return "n/a" if value is None else f"{fmt(value, digits)}{unit}"
 
 
+def fmt_mib(value, digits=2):
+    return "n/a" if value is None else f"{fmt(value / (1024 * 1024), digits)} MiB"
+
+
 def bar_chart(title, items, unit="", width=760, row_height=30, digits=2):
     items = [(label, value) for label, value in items if value is not None]
     if not items:
@@ -68,7 +72,7 @@ def main():
     summary = read_json(output_dir / "summary.json", {})
     space = read_json(output_dir / "space.json", {})
     variants = summary.get("variants", {})
-    logical_mib = summary.get("logical_bytes_per_launch", 0) / (1024 * 1024)
+    default_logical_mib = summary.get("logical_bytes_per_launch", 0) / (1024 * 1024)
 
     time_items = [
         (variant, stats.get("median_ms")) for variant, stats in variants.items()
@@ -100,6 +104,9 @@ def main():
         )
 
     ncu_metrics = space.get("ncu", {}).get("metrics", {})
+    memory_metrics = (
+        space.get("ncu", {}).get("memory_details", {}).get("metrics", {})
+    )
     ncu_rows = [
         ["Kernel", fmt(ncu_metrics.get("kernel"))],
         [
@@ -121,14 +128,25 @@ def main():
         ["Active Warps / SM", fmt(ncu_metrics.get("active_warps_per_sm"))],
         ["Block x Grid", f"{fmt(ncu_metrics.get('block_size'), 0)} x {fmt(ncu_metrics.get('grid_size'), 0)}"],
     ]
+    memory_rows = [
+        ["Kernel", fmt(memory_metrics.get("kernel"))],
+        ["DRAM Read Bytes", fmt_mib(memory_metrics.get("dram_read_bytes"))],
+        ["DRAM Write Bytes", fmt_mib(memory_metrics.get("dram_write_bytes"))],
+        ["L1 Global Load Sectors", fmt(memory_metrics.get("l1_global_load_sectors"), 0)],
+        ["L1 Global Store Sectors", fmt(memory_metrics.get("l1_global_store_sectors"), 0)],
+        ["L2 Read Sectors", fmt(memory_metrics.get("l2_read_sectors"), 0)],
+        ["L2 Write Sectors", fmt(memory_metrics.get("l2_write_sectors"), 0)],
+    ]
 
     summary_rows = []
     for variant, stats in variants.items():
+        logical_mib = stats.get("logical_bytes_per_launch", 0) / (1024 * 1024)
         summary_rows.append(
             [
                 html.escape(variant),
                 "yes" if stats.get("correct") else "no",
                 f"{fmt(stats.get('median_ms'), 4)} ms",
+                f"{logical_mib:.2f} MiB",
                 f"{fmt(stats.get('speedup_vs_original_row_stride'))}x",
                 f"{fmt(stats.get('effective_bandwidth_gbps'))} GB/s",
             ]
@@ -138,7 +156,7 @@ def main():
     binary_rows = [
         ["optimized.x", f"{fmt((binary_sizes.get('optimized_x_bytes') or 0) / 1024.0)} KiB"],
         ["fatbin.x", f"{fmt((binary_sizes.get('fatbin_x_bytes') or 0) / 1024.0)} KiB"],
-        ["Logical traffic / launch", f"{logical_mib:.2f} MiB"],
+        ["Default logical traffic / launch", f"{default_logical_mib:.2f} MiB"],
     ]
 
     html_doc = f"""<!doctype html>
@@ -174,7 +192,7 @@ code {{ background: #edf2f5; border-radius: 4px; padding: 1px 4px; }}
 <p class="meta">{html.escape(summary.get('gpu', {}).get('name', 'Unknown GPU'))} · {summary.get('dimx', 'n/a')} x {summary.get('dimy', 'n/a')} · nreps {summary.get('nreps', 'n/a')}</p>
 <section>
 <h2>Benchmark Summary</h2>
-{render_table(["Variant", "Correct", "Median Time", "Speedup", "Effective Bandwidth"], summary_rows)}
+{render_table(["Variant", "Correct", "Median Time", "Logical Traffic", "Speedup", "Effective Bandwidth"], summary_rows)}
 </section>
 {bar_chart("Time Per Launch", time_items, " ms", digits=4)}
 {bar_chart("Speedup Vs Row-Stride", speed_items, "x")}
@@ -182,6 +200,10 @@ code {{ background: #edf2f5; border-radius: 4px; padding: 1px 4px; }}
 <section>
 <h2>Nsight Compute Snapshot</h2>
 {render_table(["Metric", "Value"], ncu_rows)}
+</section>
+<section>
+<h2>Nsight Memory Details</h2>
+{render_table(["Metric", "Value"], memory_rows) if memory_metrics else "<p>No memory-detail pass captured.</p>"}
 </section>
 {bar_chart("Registers Per Thread", register_items, "", digits=0)}
 <section>

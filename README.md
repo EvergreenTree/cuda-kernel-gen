@@ -89,6 +89,14 @@ rendering under `reports/latest/`. If performance counter access is enabled for
 the current user, omit `NCU_PREFIX=sudo`.
 
 ```bash
+make profile-space NCU_PREFIX=sudo PROFILE_FLAGS="--memory-details --kernel-regex kernel_vector4_affine_half_output_sparse"
+```
+
+Runs the optional Nsight Compute memory-detail pass for a selected kernel. This
+adds DRAM byte counters and L1/L2 sector counters to `space.json` and the HTML
+report.
+
+```bash
 make specialized-check
 ```
 
@@ -146,13 +154,18 @@ Measured on the local NVIDIA RTX PRO 6000 Blackwell Server Edition
 | Experimental guarded fixed-range polynomial variant | yes | 0.31 ms |
 | Experimental unchecked fixed-range polynomial variant | yes | 0.31 ms |
 | Experimental sparse affine fixed-range variant | yes | 0.31 ms |
+| Experimental FP16-output affine variant | yes | 0.257 ms |
 
 The tuned default is about `43x` faster than the original strict build on this
-Blackwell system. Nsight Compute on the default vector path reports about `91%`
-DRAM throughput, `48%` SM throughput, `26` registers per thread, and `86%`
-achieved occupancy. The workload is effectively memory-throughput limited after
-coalescing and fast math; extra ILP and fixed-range polynomial approximations
-do not materially improve the steady-state time.
+Blackwell system while preserving the float input/output ABI. The FP16-output
+experiment changes the output ABI and reaches about `51x` speedup versus the
+original strict build, or about `1.20x` over the best float-output variants.
+
+Nsight Compute on the default vector path reports about `91%` DRAM throughput,
+`48%` SM throughput, `26` registers per thread, and `86%` achieved occupancy.
+The workload is effectively memory-throughput limited after coalescing and fast
+math; extra ILP and fixed-range polynomial approximations do not materially
+improve the steady-state time.
 
 The unchecked polynomial variant was evaluated as the benchmark-specialized
 path. Its median time was effectively tied with the general vector kernel
@@ -165,6 +178,25 @@ constants. That sparse affine variant drops to `22` registers per thread, has no
 spills, and still ties the default at about `0.31 ms`; the remaining bottleneck
 is the required global-memory writeback and transaction granularity, not SFU
 math.
+
+The FP16-output experiment keeps float input, computes the fixed-range affine
+map in FP32, and stores four half values per `float4` input group. Full-size
+median timings over three runs with `NREPS=100` were:
+
+| Variant | Correct | Median time | Nominal logical traffic |
+| --- | --- | ---: | ---: |
+| Float-output vector default | yes | 0.3099 ms | 512 MiB |
+| Float-output affine loaded | yes | 0.3096 ms | 512 MiB |
+| FP16-output affine loaded | yes | 0.2576 ms | 384 MiB |
+| FP16-output affine sparse | yes | 0.2572 ms | 256 MiB |
+
+Nsight Compute on `kernel_vector4_affine_half_output_sparse` reports `235 us`,
+`93.84%` DRAM throughput, `5.37%` SM throughput, `30` registers per thread, and
+no spills. The memory-detail pass explains why sparse and loaded FP16 output
+tie: sparse has lower nominal input bytes, but it still requests `16,777,216`
+L1 global-load sectors and about `268 MB` of DRAM reads because the two scalar
+loads per group are 16 bytes apart across warp lanes. The win comes from
+shrinking output traffic, not from skipping the unused input lanes.
 
 The fatbin path was also checked on the same machine:
 
@@ -194,6 +226,7 @@ and the practical takeaway.
 | Native SASS may differ from PTX JIT on Blackwell | Both native `sm_120` and `CUDA_FORCE_PTX_JIT=1` measured about `0.31 ms` | Driver JIT did not produce a materially faster path than offline ptxas | Keep fatbin/PTX for compatibility, not as a speed lever right now |
 | Fixed-range quadratic polynomial can remove transcendental calls | `0.309-0.310 ms`, correctness passes | SFU pressure disappears, but Nsight still shows about `91%` DRAM throughput and only about `48%` SM throughput | Math is no longer the wall; global writeback dominates |
 | Sparse polynomial / sparse affine can exploit the narrow input interval | `0.309-0.310 ms`, correctness passes | Offline fit shows `cos`/`sin` can be constants and `log`/`tan` can be affine; sparse affine uses about `22` registers/thread | Good documentation of the benchmark-specialized bound, but still tied with default |
+| FP16 output can reduce the writeback wall if the ABI can change | `0.2572-0.2576 ms`, correctness passes | Nsight on the sparse FP16 kernel reports `93.84%` DRAM throughput, `5.37%` SM throughput, and the same L1 load-sector footprint as the loaded variant | This is the first post-`float4` speedup; it is real but ABI-changing |
 | SASS should confirm what `tan` actually costs | Default vector SASS contains `MUFU.SIN`, `MUFU.COS`, and `MUFU.RCP` in the tangent lane | `__tanf` lowers to sin/cos/reciprocal-like work, so explicit `sincos` sharing is not free across independent lanes | Worth revisiting only if the iterative scalar path becomes the target again |
 | CUDA Graph replay can amortize launch overhead | Not expected to move the full-size timed kernel | The measured kernel body is already about `0.31 ms`; launch overhead is outside the CUDA-event timing loop | Useful for many small launches or end-to-end host overhead, not this main timing |
 | Tensor Cores / MMA for polynomial evaluation might use idle units | Not implemented as default; expected to lose at the current fitted degree | The valid approximation is degree `0-1` per lane, so building or storing a Vandermonde-like matrix would add scalar work and memory traffic for a tiny GEMM | Revisit only for high-degree fits, many output functions per input, or a batched layout that amortizes basis construction |
@@ -208,6 +241,8 @@ directories:
 - `summary.json`: median/min/max timing and speedup summary.
 - `space.json`: ptxas register/spill counts, binary sizes, logical memory
   traffic, and selected Nsight Compute metrics.
+- optional memory-detail Nsight counters: DRAM read/write bytes, L1 global
+  load/store sectors, and L2 read/write sectors when `--memory-details` is set.
 - `index.html`: concise visual report with speedup, memory handling, occupancy,
   and resource-footprint charts.
 - `poly_fits.json`: fixed-range polynomial search results and validation error.
@@ -227,9 +262,11 @@ directories:
    - eligible warps per scheduler
    - global load/store sector efficiency
    - instruction mix
-3. If the output ABI can change, test storing quantized half or bfloat16 output
-   plus a conversion-aware checker. With fixed-range approximations, write
-   bandwidth is the next large wall.
+3. If the output ABI can change, FP16 output is the current best experimental
+   path. The next write-side tests are packing the four half results into one
+   64-bit store per group, checking whether downstream code can consume half
+   natively, and measuring whether bfloat16 is too coarse for the `1e-3`
+   tolerance.
 4. If benchmark rules allow changing adjacent setup work, test fusing data
    generation with the kernel or otherwise removing one global read. The current
    optimized kernels are mostly constrained by global memory traffic.

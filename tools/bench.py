@@ -45,13 +45,19 @@ def parse_benchmark_output(text):
 
     for line in text.splitlines():
         parts = [part.strip() for part in line.split(",")]
-        if len(parts) != 3 or parts[0] in ("variant", "CUDA"):
+        if len(parts) < 3 or parts[0] in ("variant", "CUDA"):
             continue
         try:
             time_ms = float(parts[2])
         except ValueError:
             continue
-        rows.append({"variant": parts[0], "correct": parts[1], "time_ms": time_ms})
+        row = {"variant": parts[0], "correct": parts[1], "time_ms": time_ms}
+        if len(parts) >= 4:
+            try:
+                row["logical_bytes"] = int(parts[3])
+            except ValueError:
+                pass
+        rows.append(row)
 
     if not rows:
         raise ValueError("benchmark output did not contain variant timing rows")
@@ -71,24 +77,34 @@ def write_csv(path, rows):
 
 def summarize(rows, dimx, dimy, nreps, gpu):
     variants = sorted({row["variant"] for row in rows})
-    logical_bytes = dimx * dimy * 2 * 4
+    default_logical_bytes = dimx * dimy * 2 * 4
     by_variant = {}
     baseline = None
 
     for variant in variants:
-      times = [row["time_ms"] for row in rows if row["variant"] == variant]
-      correct = all(row["correct"] == "yes" for row in rows if row["variant"] == variant)
-      median_ms = statistics.median(times)
-      if variant == "original_row_stride":
-          baseline = median_ms
-      by_variant[variant] = {
-          "correct": correct,
-          "median_ms": median_ms,
-          "min_ms": min(times),
-          "max_ms": max(times),
-          "samples": len(times),
-          "effective_bandwidth_gbps": logical_bytes / (median_ms * 1.0e-3) / 1.0e9,
-      }
+        times = [row["time_ms"] for row in rows if row["variant"] == variant]
+        correct = all(
+            row["correct"] == "yes" for row in rows if row["variant"] == variant
+        )
+        median_ms = statistics.median(times)
+        logical_bytes = max(
+            row.get("logical_bytes", default_logical_bytes)
+            for row in rows
+            if row["variant"] == variant
+        )
+        if variant == "original_row_stride":
+            baseline = median_ms
+        by_variant[variant] = {
+            "correct": correct,
+            "median_ms": median_ms,
+            "min_ms": min(times),
+            "max_ms": max(times),
+            "samples": len(times),
+            "logical_bytes_per_launch": logical_bytes,
+            "effective_bandwidth_gbps": logical_bytes
+            / (median_ms * 1.0e-3)
+            / 1.0e9,
+        }
 
     if baseline:
         for stats in by_variant.values():
@@ -99,7 +115,7 @@ def summarize(rows, dimx, dimy, nreps, gpu):
         "dimx": dimx,
         "dimy": dimy,
         "nreps": nreps,
-        "logical_bytes_per_launch": logical_bytes,
+        "logical_bytes_per_launch": default_logical_bytes,
         "variants": by_variant,
     }
 
@@ -143,6 +159,7 @@ def main():
             None,
         )
         for row in rows:
+            logical_bytes = row.get("logical_bytes", args.dimx * args.dimy * 2 * 4)
             enriched = {
                 "run": run_id,
                 "variant": row["variant"],
@@ -151,12 +168,12 @@ def main():
                 "dimx": args.dimx,
                 "dimy": args.dimy,
                 "nreps": args.nreps,
-                "logical_bytes": args.dimx * args.dimy * 2 * 4,
+                "logical_bytes": logical_bytes,
             }
             if original:
                 enriched["speedup_vs_original_row_stride"] = f"{original / row['time_ms']:.6f}"
             enriched["effective_bandwidth_gbps"] = (
-                f"{(args.dimx * args.dimy * 2 * 4) / (row['time_ms'] * 1.0e-3) / 1.0e9:.3f}"
+                f"{logical_bytes / (row['time_ms'] * 1.0e-3) / 1.0e9:.3f}"
             )
             samples.append(enriched)
 
@@ -165,6 +182,7 @@ def main():
             "variant": row["variant"],
             "correct": row["correct"],
             "time_ms": float(row["time_ms"]),
+            "logical_bytes": int(row["logical_bytes"]),
         }
         for row in samples
     ]

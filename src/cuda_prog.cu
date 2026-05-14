@@ -1,4 +1,5 @@
 #include <cuda_runtime.h>
+#include <cuda_fp16.h>
 
 #include <math.h>
 #include <stdint.h>
@@ -69,6 +70,37 @@ bool checkResults(float *gold, float *d_data, int dimx, int dimy,
 
       if (rdiff > rel_tol) {
         printf("Error solutions don't match at iy=%d, ix=%d.\n", iy, ix);
+        printf("gold: %f, device: %f\n", gdata, ddata);
+        printf("rdiff: %f\n", rdiff);
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+bool checkHalfResults(float *gold, const __half *h_data, int dimx, int dimy,
+                      float rel_tol) {
+  for (int iy = 0; iy < dimy; ++iy) {
+    for (int ix = 0; ix < dimx; ++ix) {
+      int idx = iy * dimx + ix;
+
+      float gdata = gold[idx];
+      float ddata = __half2float(h_data[idx]);
+
+      if (isnan(gdata) || isnan(ddata)) {
+        printf("Nan detected: gold %f, device %f\n", gdata, ddata);
+        return false;
+      }
+
+      float rdiff;
+      if (fabsf(gdata) == 0.f)
+        rdiff = fabsf(ddata);
+      else
+        rdiff = fabsf(gdata - ddata) / fabsf(gdata);
+
+      if (rdiff > rel_tol) {
+        printf("Error half output doesn't match at iy=%d, ix=%d.\n", iy, ix);
         printf("gold: %f, device: %f\n", gdata, ddata);
         printf("rdiff: %f\n", rdiff);
         return false;
@@ -368,6 +400,46 @@ __global__ void kernel_vector4_affine_loaded(float4 *__restrict__ g_data4,
   }
 }
 
+__global__ void kernel_vector4_affine_half_output_loaded(
+    const float4 *__restrict__ in4, __half2 *__restrict__ out2, int groups) {
+  int group = blockIdx.x * blockDim.x + threadIdx.x;
+  int stride = blockDim.x * gridDim.x;
+
+  for (; group < groups; group += stride) {
+    float4 value = in4[group];
+    float x =
+        affine(fixed_range_s_unchecked(value.x), 8.08435372f, 0.0109435349f);
+    float y = 3.13439728f;
+    float z = 4.68293153f;
+    float w =
+        affine(fixed_range_s_unchecked(value.w), 7.04225693f, 0.135612134f);
+
+    int out = group << 1;
+    out2[out] = __floats2half2_rn(x, y);
+    out2[out + 1] = __floats2half2_rn(z, w);
+  }
+}
+
+__global__ void kernel_vector4_affine_half_output_sparse(
+    const float *__restrict__ in, __half2 *__restrict__ out2, int groups) {
+  int group = blockIdx.x * blockDim.x + threadIdx.x;
+  int stride = blockDim.x * gridDim.x;
+
+  for (; group < groups; group += stride) {
+    int base = group << 2;
+    float x =
+        affine(fixed_range_s_unchecked(in[base]), 8.08435372f, 0.0109435349f);
+    float y = 3.13439728f;
+    float z = 4.68293153f;
+    float w = affine(fixed_range_s_unchecked(in[base + 3]), 7.04225693f,
+                     0.135612134f);
+
+    int out = group << 1;
+    out2[out] = __floats2half2_rn(x, y);
+    out2[out + 1] = __floats2half2_rn(z, w);
+  }
+}
+
 template <int NITER, int ITEMS>
 __global__ void kernel_vector4_ilp_fast(float4 *__restrict__ g_data4,
                                         int groups) {
@@ -420,6 +492,21 @@ __global__ void kernel_vector4_fast_dynamic(float4 *__restrict__ g_data4,
   }
 }
 
+__global__ void kernel_scalar_fast_half_output(const float *__restrict__ in,
+                                               __half *__restrict__ out,
+                                               int total, int dimx,
+                                               int niterations) {
+  int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  int stride = blockDim.x * gridDim.x;
+
+  for (; idx < total; idx += stride) {
+    int ix = idx - (idx / dimx) * dimx;
+    int lane = ix & 3;
+    float value = apply_fast_dynamic(in[idx], lane, niterations);
+    out[idx] = __float2half_rn(value);
+  }
+}
+
 enum KernelVariant {
   VARIANT_ORIGINAL = 0,
   VARIANT_SCALAR_COALESCED = 1,
@@ -430,6 +517,11 @@ enum KernelVariant {
   VARIANT_VECTOR4_POLY5_SPARSE = 6,
   VARIANT_VECTOR4_AFFINE_SPARSE = 7,
   VARIANT_VECTOR4_AFFINE_LOADED = 8,
+};
+
+enum HalfOutputVariant {
+  HALF_OUTPUT_AFFINE_LOADED = 0,
+  HALF_OUTPUT_AFFINE_SPARSE = 1,
 };
 
 const char *variant_name(KernelVariant variant) {
@@ -454,6 +546,17 @@ const char *variant_name(KernelVariant variant) {
       return "vector4_affine_loaded_fixed_range_experimental";
     default:
       return "unknown";
+  }
+}
+
+const char *half_output_variant_name(HalfOutputVariant variant) {
+  switch (variant) {
+    case HALF_OUTPUT_AFFINE_LOADED:
+      return "vector4_affine_half_output_loaded_experimental";
+    case HALF_OUTPUT_AFFINE_SPARSE:
+      return "vector4_affine_half_output_sparse_experimental";
+    default:
+      return "unknown_half_output";
   }
 }
 
@@ -545,6 +648,38 @@ void launch_variant(KernelVariant variant, float *d_data, int dimx, int dimy,
                                                    niterations);
 }
 
+void launch_half_output_variant(HalfOutputVariant variant, const float *d_in,
+                                __half *d_out, int dimx, int dimy,
+                                int niterations) {
+  int total = dimx * dimy;
+  int block_size = THREADS_PER_BLOCK;
+  bool vector_safe = ((dimx & 3) == 0) && ((total & 3) == 0) &&
+                     ((((uintptr_t)d_in) & (sizeof(float4) - 1)) == 0) &&
+                     ((((uintptr_t)d_out) & (sizeof(__half2) - 1)) == 0);
+
+  if (niterations == 5 && vector_safe) {
+    int groups = total / 4;
+    dim3 block(block_size);
+    dim3 grid(tuned_grid_size(groups, block_size));
+    __half2 *d_out2 = reinterpret_cast<__half2 *>(d_out);
+
+    if (variant == HALF_OUTPUT_AFFINE_SPARSE) {
+      kernel_vector4_affine_half_output_sparse<<<grid, block>>>(d_in, d_out2,
+                                                                groups);
+    } else {
+      const float4 *d_in4 = reinterpret_cast<const float4 *>(d_in);
+      kernel_vector4_affine_half_output_loaded<<<grid, block>>>(d_in4, d_out2,
+                                                                groups);
+    }
+    return;
+  }
+
+  dim3 block(block_size);
+  dim3 grid(tuned_grid_size(total, block_size));
+  kernel_scalar_fast_half_output<<<grid, block>>>(d_in, d_out, total, dimx,
+                                                  niterations);
+}
+
 void launchKernel(float *d_data, int dimx, int dimy, int niterations) {
 #if USE_POLY_APPROX_DEFAULT
   launch_variant(VARIANT_VECTOR4_AFFINE_LOADED, d_data, dimx, dimy,
@@ -579,6 +714,34 @@ float timing_experiment(KernelVariant variant, float *d_data,
   return total_time_ms / nreps;
 }
 
+float timing_half_output_experiment(HalfOutputVariant variant, float *d_data,
+                                    __half *d_half, const float *h_initial,
+                                    int dimx, int dimy, int niterations,
+                                    int nreps, int input_nbytes) {
+  float elapsed_time_ms = 0.0f, total_time_ms = 0.0f;
+  cudaEvent_t start, stop;
+  CUDA_CHECK(cudaEventCreate(&start));
+  CUDA_CHECK(cudaEventCreate(&stop));
+
+  for (int i = 0; i < nreps; i++) {
+    CUDA_CHECK(
+        cudaMemcpy(d_data, h_initial, input_nbytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaEventRecord(start, 0));
+    launch_half_output_variant(variant, d_data, d_half, dimx, dimy,
+                               niterations);
+    CUDA_CHECK(cudaEventRecord(stop, 0));
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaGetLastError());
+    CUDA_CHECK(cudaEventElapsedTime(&elapsed_time_ms, start, stop));
+    total_time_ms += elapsed_time_ms;
+  }
+
+  CUDA_CHECK(cudaEventDestroy(start));
+  CUDA_CHECK(cudaEventDestroy(stop));
+
+  return total_time_ms / nreps;
+}
+
 bool verify_variant(KernelVariant variant, float *d_data, float *h_data,
                     float *h_gold, const float *h_initial, int dimx, int dimy,
                     int niterations, int nbytes, float rel_tol) {
@@ -593,6 +756,23 @@ bool verify_variant(KernelVariant variant, float *d_data, float *h_data,
   return checkResults(h_gold, h_data, dimx, dimy, rel_tol);
 }
 
+bool verify_half_output_variant(HalfOutputVariant variant, float *d_data,
+                                __half *d_half, __half *h_half, float *h_gold,
+                                const float *h_initial, int dimx, int dimy,
+                                int niterations, int input_nbytes,
+                                int output_nbytes, float rel_tol) {
+  memcpy(h_gold, h_initial, input_nbytes);
+  CUDA_CHECK(
+      cudaMemcpy(d_data, h_initial, input_nbytes, cudaMemcpyHostToDevice));
+  launch_half_output_variant(variant, d_data, d_half, dimx, dimy, niterations);
+  CUDA_CHECK(cudaDeviceSynchronize());
+  CUDA_CHECK(cudaGetLastError());
+  CUDA_CHECK(cudaMemcpy(h_half, d_half, output_nbytes, cudaMemcpyDeviceToHost));
+
+  computeCpuResults(h_gold, dimx, dimy, niterations, 1);
+  return checkHalfResults(h_gold, h_half, dimx, dimy, rel_tol);
+}
+
 float benchmark_variant(KernelVariant variant, float *d_data,
                         const float *h_initial, int dimx, int dimy,
                         int niterations, int nreps, int nbytes) {
@@ -605,6 +785,21 @@ float benchmark_variant(KernelVariant variant, float *d_data,
                            nreps, nbytes);
 }
 
+float benchmark_half_output_variant(HalfOutputVariant variant, float *d_data,
+                                    __half *d_half, const float *h_initial,
+                                    int dimx, int dimy, int niterations,
+                                    int nreps, int input_nbytes) {
+  CUDA_CHECK(
+      cudaMemcpy(d_data, h_initial, input_nbytes, cudaMemcpyHostToDevice));
+  launch_half_output_variant(variant, d_data, d_half, dimx, dimy, niterations);
+  CUDA_CHECK(cudaDeviceSynchronize());
+  CUDA_CHECK(cudaGetLastError());
+
+  return timing_half_output_experiment(variant, d_data, d_half, h_initial,
+                                       dimx, dimy, niterations, nreps,
+                                       input_nbytes);
+}
+
 int main() {
   int dimx = DIMX;
   int dimy = DIMY;
@@ -613,6 +808,10 @@ int main() {
   int niterations = 5;
   int total = dimx * dimy;
   int nbytes = total * (int)sizeof(float);
+  int half_nbytes = total * (int)sizeof(__half);
+  long long float_logical_bytes = (long long)nbytes * 2;
+  long long half_loaded_logical_bytes = (long long)nbytes + half_nbytes;
+  long long half_sparse_logical_bytes = (long long)nbytes / 2 + half_nbytes;
 
   cudaDeviceProp prop;
   CUDA_CHECK(cudaGetDeviceProperties(&prop, 0));
@@ -620,17 +819,22 @@ int main() {
          prop.minor, prop.multiProcessorCount);
 
   float *d_data = 0, *h_data = 0, *h_gold = 0, *h_initial = 0;
+  __half *d_half = 0, *h_half = 0;
   CUDA_CHECK(cudaMalloc((void **)&d_data, nbytes));
-  printf("allocated %.2f MB on GPU\n", nbytes / (1024.f * 1024.f));
+  CUDA_CHECK(cudaMalloc((void **)&d_half, half_nbytes));
+  printf("allocated %.2f MB on GPU\n",
+         (nbytes + half_nbytes) / (1024.f * 1024.f));
 
   h_data = (float *)malloc(nbytes);
   h_gold = (float *)malloc(nbytes);
   h_initial = (float *)malloc(nbytes);
-  if (0 == h_data || 0 == h_gold || 0 == h_initial) {
+  h_half = (__half *)malloc(half_nbytes);
+  if (0 == h_data || 0 == h_gold || 0 == h_initial || 0 == h_half) {
     printf("couldn't allocate CPU memory\n");
     return -2;
   }
-  printf("allocated %.2f MB on CPU\n", 3.0f * nbytes / (1024.f * 1024.f));
+  printf("allocated %.2f MB on CPU\n",
+         (3.0f * nbytes + half_nbytes) / (1024.f * 1024.f));
 
   srand(1234);
   for (int i = 0; i < total; i++) {
@@ -649,10 +853,16 @@ int main() {
       VARIANT_VECTOR4_AFFINE_LOADED,
   };
   const int variant_count = sizeof(variants) / sizeof(variants[0]);
+  const HalfOutputVariant half_output_variants[] = {
+      HALF_OUTPUT_AFFINE_LOADED,
+      HALF_OUTPUT_AFFINE_SPARSE,
+  };
+  const int half_output_variant_count =
+      sizeof(half_output_variants) / sizeof(half_output_variants[0]);
   float rel_tol = .001f;
   bool all_pass = true;
 
-  printf("variant,correct,time_ms\n");
+  printf("variant,correct,time_ms,logical_bytes\n");
   for (int i = 0; i < variant_count; ++i) {
     KernelVariant variant = variants[i];
     bool pass = verify_variant(variant, d_data, h_data, h_gold, h_initial, dimx,
@@ -660,17 +870,35 @@ int main() {
     float elapsed_time_ms =
         benchmark_variant(variant, d_data, h_initial, dimx, dimy, niterations,
                           nreps, nbytes);
-    printf("%s,%s,%8.4f\n", variant_name(variant), pass ? "yes" : "no",
-           elapsed_time_ms);
+    printf("%s,%s,%8.4f,%lld\n", variant_name(variant),
+           pass ? "yes" : "no", elapsed_time_ms, float_logical_bytes);
+    all_pass = all_pass && pass;
+  }
+
+  for (int i = 0; i < half_output_variant_count; ++i) {
+    HalfOutputVariant variant = half_output_variants[i];
+    bool pass = verify_half_output_variant(
+        variant, d_data, d_half, h_half, h_gold, h_initial, dimx, dimy,
+        niterations, nbytes, half_nbytes, rel_tol);
+    float elapsed_time_ms = benchmark_half_output_variant(
+        variant, d_data, d_half, h_initial, dimx, dimy, niterations, nreps,
+        nbytes);
+    long long logical_bytes =
+        variant == HALF_OUTPUT_AFFINE_SPARSE ? half_sparse_logical_bytes
+                                             : half_loaded_logical_bytes;
+    printf("%s,%s,%8.4f,%lld\n", half_output_variant_name(variant),
+           pass ? "yes" : "no", elapsed_time_ms, logical_bytes);
     all_pass = all_pass && pass;
   }
 
   printf("CUDA: %s\n", cudaGetErrorString(cudaGetLastError()));
 
   if (d_data) CUDA_CHECK(cudaFree(d_data));
+  if (d_half) CUDA_CHECK(cudaFree(d_half));
   if (h_data) free(h_data);
   if (h_gold) free(h_gold);
   if (h_initial) free(h_initial);
+  if (h_half) free(h_half);
 
   CUDA_CHECK(cudaDeviceReset());
 

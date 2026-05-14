@@ -6,6 +6,7 @@ BENCH_NREPS ?= 100
 BENCH_RUNS ?= 3
 PROFILE_DIM ?= 8192
 NCU_PREFIX ?=
+PROFILE_FLAGS ?=
 
 OPT_SRC := src/cuda_prog.cu
 PROBLEM_SRC := problem/cuda_prog_unoptimized.cu
@@ -59,7 +60,7 @@ bench:
 profile-time: bench
 
 profile-space: optimized.x
-	$(PYTHON) tools/profile.py --dimx $(PROFILE_DIM) --dimy $(PROFILE_DIM) --ncu-prefix "$(NCU_PREFIX)" --output-dir $(REPORT_DIR)
+	$(PYTHON) tools/profile.py --dimx $(PROFILE_DIM) --dimy $(PROFILE_DIM) --ncu-prefix "$(NCU_PREFIX)" --output-dir $(REPORT_DIR) $(PROFILE_FLAGS)
 
 report:
 	$(PYTHON) tools/render_report.py --output-dir $(REPORT_DIR)

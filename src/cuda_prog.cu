@@ -70,6 +70,14 @@ static __host__ __device__ __forceinline__ unsigned short pack_fixed_u16_xw(
   return (unsigned short)(scaled + 0.5f);
 }
 
+static __host__ __device__ __forceinline__ unsigned char pack_fixed_u8_xw(
+    float value) {
+  float scaled = (value - 1.0f) * (255.0f / 0.01f);
+  if (scaled < 0.0f) scaled = 0.0f;
+  if (scaled > 255.0f) scaled = 255.0f;
+  return (unsigned char)(scaled + 0.5f);
+}
+
 double wall_time_ms() {
   struct timespec ts;
   clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -238,6 +246,10 @@ __device__ __forceinline__ float fixed_range_s_unchecked(float value) {
 
 __device__ __forceinline__ float unpack_fixed_u16_xw(unsigned short value) {
   return 1.0f + (0.01f / 65535.0f) * (float)value;
+}
+
+__device__ __forceinline__ float unpack_fixed_u8_xw(unsigned char value) {
+  return 1.0f + (0.01f / 255.0f) * (float)value;
 }
 
 __device__ __forceinline__ float poly2(float s, float c0, float c1, float c2) {
@@ -592,6 +604,28 @@ __global__ void kernel_compact_u16_xw_affine_half_output(
     ushort2 packed = in_xw[group];
     float x_in = unpack_fixed_u16_xw(packed.x);
     float w_in = unpack_fixed_u16_xw(packed.y);
+    float x = affine(fixed_range_s_unchecked(x_in), 8.08435372f,
+                     0.0109435349f);
+    float y = 3.13439728f;
+    float z = 4.68293153f;
+    float w = affine(fixed_range_s_unchecked(w_in), 7.04225693f,
+                     0.135612134f);
+
+    int out = group << 1;
+    out2[out] = __floats2half2_rn(x, y);
+    out2[out + 1] = __floats2half2_rn(z, w);
+  }
+}
+
+__global__ void kernel_compact_u8_xw_affine_half_output(
+    const uchar2 *__restrict__ in_xw, __half2 *__restrict__ out2, int groups) {
+  int group = blockIdx.x * blockDim.x + threadIdx.x;
+  int stride = blockDim.x * gridDim.x;
+
+  for (; group < groups; group += stride) {
+    uchar2 packed = in_xw[group];
+    float x_in = unpack_fixed_u8_xw(packed.x);
+    float w_in = unpack_fixed_u8_xw(packed.y);
     float x = affine(fixed_range_s_unchecked(x_in), 8.08435372f,
                      0.0109435349f);
     float y = 3.13439728f;
@@ -973,6 +1007,29 @@ void launch_compact_u16_xw_half_output_variant(const ushort2 *d_xw,
                                                             groups);
 }
 
+void launch_compact_u8_xw_half_output_variant(const uchar2 *d_xw,
+                                              __half *d_out, int dimx,
+                                              int dimy, int niterations) {
+  int total = dimx * dimy;
+  int block_size = THREADS_PER_BLOCK;
+  bool vector_safe = ((dimx & 3) == 0) && ((total & 3) == 0) &&
+                     ((((uintptr_t)d_xw) & (sizeof(uchar2) - 1)) == 0) &&
+                     ((((uintptr_t)d_out) & (sizeof(__half2) - 1)) == 0);
+  if (!(niterations == 5 && vector_safe)) {
+    fprintf(stderr,
+            "Compact u8 x/w output experiment requires vector-safe "
+            "niterations=5 input\n");
+    exit(EXIT_FAILURE);
+  }
+
+  int groups = total / 4;
+  dim3 block(block_size);
+  dim3 grid(tuned_grid_size(groups, block_size));
+  __half2 *d_out2 = reinterpret_cast<__half2 *>(d_out);
+  kernel_compact_u8_xw_affine_half_output<<<grid, block>>>(d_xw, d_out2,
+                                                           groups);
+}
+
 #if ENABLE_LAYOUT_SETUP_EXPERIMENT
 void launch_pack_xw_variant(const float *d_data, float2 *d_xw, int dimx,
                             int dimy) {
@@ -1272,6 +1329,32 @@ float timing_compact_u16_xw_half_output_experiment(
   return total_time_ms / nreps;
 }
 
+float timing_compact_u8_xw_half_output_experiment(
+    const uchar2 *h_xw, uchar2 *d_xw, __half *d_half, int dimx, int dimy,
+    int niterations, int nreps, int compact_nbytes) {
+  float elapsed_time_ms = 0.0f, total_time_ms = 0.0f;
+  cudaEvent_t start, stop;
+  CUDA_CHECK(cudaEventCreate(&start));
+  CUDA_CHECK(cudaEventCreate(&stop));
+
+  for (int i = 0; i < nreps; i++) {
+    CUDA_CHECK(cudaMemcpy(d_xw, h_xw, compact_nbytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaEventRecord(start, 0));
+    launch_compact_u8_xw_half_output_variant(d_xw, d_half, dimx, dimy,
+                                             niterations);
+    CUDA_CHECK(cudaEventRecord(stop, 0));
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaGetLastError());
+    CUDA_CHECK(cudaEventElapsedTime(&elapsed_time_ms, start, stop));
+    total_time_ms += elapsed_time_ms;
+  }
+
+  CUDA_CHECK(cudaEventDestroy(start));
+  CUDA_CHECK(cudaEventDestroy(stop));
+
+  return total_time_ms / nreps;
+}
+
 #if ENABLE_LAYOUT_SETUP_EXPERIMENT
 float timing_pack_xw_experiment(float *d_data, float2 *d_xw,
                                 const float *h_initial, int dimx, int dimy,
@@ -1494,6 +1577,23 @@ bool verify_compact_u16_xw_half_output_variant(
   return checkHalfResults(h_gold, h_half, dimx, dimy, rel_tol);
 }
 
+bool verify_compact_u8_xw_half_output_variant(
+    uchar2 *d_xw, __half *d_half, __half *h_half, float *h_gold,
+    const uchar2 *h_xw, const float *h_initial, int dimx, int dimy,
+    int niterations, int input_nbytes, int compact_nbytes, int output_nbytes,
+    float rel_tol) {
+  memcpy(h_gold, h_initial, input_nbytes);
+  CUDA_CHECK(cudaMemcpy(d_xw, h_xw, compact_nbytes, cudaMemcpyHostToDevice));
+  launch_compact_u8_xw_half_output_variant(d_xw, d_half, dimx, dimy,
+                                           niterations);
+  CUDA_CHECK(cudaDeviceSynchronize());
+  CUDA_CHECK(cudaGetLastError());
+  CUDA_CHECK(cudaMemcpy(h_half, d_half, output_nbytes, cudaMemcpyDeviceToHost));
+
+  computeCpuResults(h_gold, dimx, dimy, niterations, 1);
+  return checkHalfResults(h_gold, h_half, dimx, dimy, rel_tol);
+}
+
 #if ENABLE_LAYOUT_SETUP_EXPERIMENT
 bool checkCompactInput(const float2 *expected, const float2 *actual,
                        int groups) {
@@ -1680,6 +1780,22 @@ float benchmark_compact_u16_xw_half_output_variant(const ushort2 *h_xw,
       h_xw, d_xw, d_half, dimx, dimy, niterations, nreps, compact_nbytes);
 }
 
+float benchmark_compact_u8_xw_half_output_variant(const uchar2 *h_xw,
+                                                  uchar2 *d_xw,
+                                                  __half *d_half, int dimx,
+                                                  int dimy, int niterations,
+                                                  int nreps,
+                                                  int compact_nbytes) {
+  CUDA_CHECK(cudaMemcpy(d_xw, h_xw, compact_nbytes, cudaMemcpyHostToDevice));
+  launch_compact_u8_xw_half_output_variant(d_xw, d_half, dimx, dimy,
+                                           niterations);
+  CUDA_CHECK(cudaDeviceSynchronize());
+  CUDA_CHECK(cudaGetLastError());
+
+  return timing_compact_u8_xw_half_output_experiment(
+      h_xw, d_xw, d_half, dimx, dimy, niterations, nreps, compact_nbytes);
+}
+
 #if ENABLE_LAYOUT_SETUP_EXPERIMENT
 float benchmark_pack_xw_variant(float *d_data, float2 *d_xw,
                                 const float *h_initial, int dimx, int dimy,
@@ -1773,6 +1889,7 @@ int main() {
   int compact_xw_nbytes = groups * (int)sizeof(float2);
   int compact_half_xw_nbytes = groups * (int)sizeof(__half2);
   int compact_u16_xw_nbytes = groups * (int)sizeof(ushort2);
+  int compact_u8_xw_nbytes = groups * (int)sizeof(uchar2);
 #if ENABLE_BF16_OUTPUT_EXPERIMENT
   int bf16_nbytes = total * (int)sizeof(__nv_bfloat16);
 #endif
@@ -1785,6 +1902,8 @@ int main() {
       (long long)compact_half_xw_nbytes + half_nbytes;
   long long compact_u16_xw_logical_bytes =
       (long long)compact_u16_xw_nbytes + half_nbytes;
+  long long compact_u8_xw_logical_bytes =
+      (long long)compact_u8_xw_nbytes + half_nbytes;
 
   cudaDeviceProp prop;
   CUDA_CHECK(cudaGetDeviceProperties(&prop, 0));
@@ -1796,6 +1915,7 @@ int main() {
   float2 *d_compact_xw = 0, *h_compact_xw = 0;
   __half2 *d_compact_half_xw = 0, *h_compact_half_xw = 0;
   ushort2 *d_compact_u16_xw = 0, *h_compact_u16_xw = 0;
+  uchar2 *d_compact_u8_xw = 0, *h_compact_u8_xw = 0;
 #if ENABLE_LAYOUT_SETUP_EXPERIMENT
   float2 *h_compact_check = 0;
   ushort2 *h_compact_u16_check = 0;
@@ -1809,12 +1929,13 @@ int main() {
   CUDA_CHECK(
       cudaMalloc((void **)&d_compact_half_xw, compact_half_xw_nbytes));
   CUDA_CHECK(cudaMalloc((void **)&d_compact_u16_xw, compact_u16_xw_nbytes));
+  CUDA_CHECK(cudaMalloc((void **)&d_compact_u8_xw, compact_u8_xw_nbytes));
 #if ENABLE_BF16_OUTPUT_EXPERIMENT
   CUDA_CHECK(cudaMalloc((void **)&d_bf16, bf16_nbytes));
 #endif
   printf("allocated %.2f MB on GPU\n",
          (nbytes + half_nbytes + compact_xw_nbytes + compact_half_xw_nbytes
-          + compact_u16_xw_nbytes
+          + compact_u16_xw_nbytes + compact_u8_xw_nbytes
 #if ENABLE_BF16_OUTPUT_EXPERIMENT
           + bf16_nbytes
 #endif
@@ -1828,6 +1949,7 @@ int main() {
   h_compact_xw = (float2 *)malloc(compact_xw_nbytes);
   h_compact_half_xw = (__half2 *)malloc(compact_half_xw_nbytes);
   h_compact_u16_xw = (ushort2 *)malloc(compact_u16_xw_nbytes);
+  h_compact_u8_xw = (uchar2 *)malloc(compact_u8_xw_nbytes);
 #if ENABLE_LAYOUT_SETUP_EXPERIMENT
   h_compact_check = (float2 *)malloc(compact_xw_nbytes);
   h_compact_u16_check = (ushort2 *)malloc(compact_u16_xw_nbytes);
@@ -1837,7 +1959,7 @@ int main() {
 #endif
   if (0 == h_data || 0 == h_gold || 0 == h_initial || 0 == h_half ||
       0 == h_compact_xw || 0 == h_compact_half_xw
-      || 0 == h_compact_u16_xw
+      || 0 == h_compact_u16_xw || 0 == h_compact_u8_xw
 #if ENABLE_LAYOUT_SETUP_EXPERIMENT
       || 0 == h_compact_check
       || 0 == h_compact_u16_check
@@ -1851,7 +1973,8 @@ int main() {
   }
   printf("allocated %.2f MB on CPU\n",
          (3.0f * nbytes + half_nbytes + compact_xw_nbytes +
-          compact_half_xw_nbytes + compact_u16_xw_nbytes
+          compact_half_xw_nbytes + compact_u16_xw_nbytes +
+          compact_u8_xw_nbytes
 #if ENABLE_BF16_OUTPUT_EXPERIMENT
           + bf16_nbytes
 #endif
@@ -1871,6 +1994,8 @@ int main() {
     h_compact_u16_xw[group] = make_ushort2(
         pack_fixed_u16_xw(h_initial[base]),
         pack_fixed_u16_xw(h_initial[base + 3]));
+    h_compact_u8_xw[group] = make_uchar2(pack_fixed_u8_xw(h_initial[base]),
+                                         pack_fixed_u8_xw(h_initial[base + 3]));
   }
 
   const KernelVariant variants[] = {
@@ -1963,6 +2088,20 @@ int main() {
          compact_u16_xw_logical_bytes);
   all_pass = all_pass && compact_u16_xw_pass;
 
+  bool compact_u8_xw_pass = verify_compact_u8_xw_half_output_variant(
+      d_compact_u8_xw, d_half, h_half, h_gold, h_compact_u8_xw, h_initial,
+      dimx, dimy, niterations, nbytes, compact_u8_xw_nbytes, half_nbytes,
+      rel_tol);
+  float compact_u8_xw_elapsed_time_ms =
+      benchmark_compact_u8_xw_half_output_variant(
+          h_compact_u8_xw, d_compact_u8_xw, d_half, dimx, dimy, niterations,
+          nreps, compact_u8_xw_nbytes);
+  printf("%s,%s,%8.4f,%lld\n",
+         "compact_u8_xw_affine_half_output_experimental",
+         compact_u8_xw_pass ? "yes" : "no", compact_u8_xw_elapsed_time_ms,
+         compact_u8_xw_logical_bytes);
+  all_pass = all_pass && compact_u8_xw_pass;
+
 #if ENABLE_LAYOUT_SETUP_EXPERIMENT
   bool pack_xw_pass = verify_pack_xw_variant(
       d_data, d_compact_xw, h_compact_check, h_initial, h_compact_xw, dimx,
@@ -2051,6 +2190,7 @@ int main() {
   if (d_compact_xw) CUDA_CHECK(cudaFree(d_compact_xw));
   if (d_compact_half_xw) CUDA_CHECK(cudaFree(d_compact_half_xw));
   if (d_compact_u16_xw) CUDA_CHECK(cudaFree(d_compact_u16_xw));
+  if (d_compact_u8_xw) CUDA_CHECK(cudaFree(d_compact_u8_xw));
 #if ENABLE_BF16_OUTPUT_EXPERIMENT
   if (d_bf16) CUDA_CHECK(cudaFree(d_bf16));
 #endif
@@ -2061,6 +2201,7 @@ int main() {
   if (h_compact_xw) free(h_compact_xw);
   if (h_compact_half_xw) free(h_compact_half_xw);
   if (h_compact_u16_xw) free(h_compact_u16_xw);
+  if (h_compact_u8_xw) free(h_compact_u8_xw);
 #if ENABLE_LAYOUT_SETUP_EXPERIMENT
   if (h_compact_check) free(h_compact_check);
   if (h_compact_u16_check) free(h_compact_u16_check);

@@ -186,6 +186,7 @@ Measured on the local NVIDIA RTX PRO 6000 Blackwell Server Edition
 | FP16-output affine family | float in, half out | yes | 0.257 ms |
 | Compact `x/w` input + FP16 output | compact float2 in, half out | yes | 0.169 ms |
 | Compact U16 `x/w` input + FP16 output | compact ushort2 in, half out | yes | 0.124 ms |
+| Compact U8 `x/w` input + FP16 output | compact uchar2 in, half out | yes | 0.105 ms |
 | GPU pack + compact `x/w` pipeline | float in, half out | yes | 0.445 ms |
 | Compact FP16 `x/w` input boundary | compact half2 in, half out | expected no | 0.121 ms |
 | BF16-output affine boundary | float in, BF16 out | expected no | 0.257 ms |
@@ -213,7 +214,8 @@ and the practical takeaway.
 | FP16 output can reduce the writeback wall if the ABI can change | `0.2572-0.2576 ms`, correctness passes; packed 64-bit store sampled at `0.2573 ms` | Nsight on the sparse FP16 kernel reports `93.84%` DRAM throughput, `5.37%` SM throughput, and the same L1 load-sector footprint as the loaded variant | This is the first post-`float4` speedup; it is real but ABI-changing |
 | Compact input layout can reduce actual input sectors | `0.1687 ms` median over 3 full-size runs | Nsight reports `137.952 us`, `91.8%` DRAM throughput, `134 MB` DRAM reads, and `4,194,304` L1 load sectors versus `16,777,216` for sparse AoS | Strong setup/layout-changing step; count packing cost unless a producer can emit compact `x/w` directly |
 | Compact FP16 input might cut compact `x/w` traffic again | `0.1210 ms`, expected failure; first checked miss had `rdiff 0.001544` | Same logical traffic as U16 fixed-point, but FP16 quantization near `1.0` is too coarse for the tangent-sensitive lane | Do not use raw FP16 input under the current tolerance |
-| Compact U16 fixed-point input can keep 16-bit storage and tolerance | `0.1243 ms` median over 3 full-size runs, correctness passes | Nsight reports `93.312 us`, `88.62%` DRAM throughput, `13.42%` SM throughput, `67 MB` DRAM reads, `63 MB` DRAM writes, and `2,097,152` L1 load sectors | New fastest kernel-side result; still layout-changing and benchmark-range-specific |
+| Compact U16 fixed-point input can keep 16-bit storage and tolerance | `0.1243 ms` median over 3 full-size runs, correctness passes | Nsight reports `93.312 us`, `88.62%` DRAM throughput, `13.42%` SM throughput, `67 MB` DRAM reads, `63 MB` DRAM writes, and `2,097,152` L1 load sectors | Strong 16-bit storage result, but U8 supersedes it as the fastest kernel-side variant |
+| Compact U8 fixed-point input can cut input sectors again | `0.1051 ms` median over 3 full-size runs, correctness passes | Nsight reports `76.896 us`, `78.11%` DRAM throughput, `17.16%` SM throughput, `34 MB` DRAM reads, `63 MB` DRAM writes, and `1,048,576` L1 load sectors | New fastest kernel-side result; output writes now dominate even more strongly |
 | GPU packing from original AoS can feed compact input | Pack alone `0.2565 ms`; pack plus compact consumer `0.4448 ms` | Pack kernel still reads `268 MB`, writes about `81 MB`, and requests `16,777,216` L1 load sectors | Not an end-to-end win when starting from the original float grid; compact layout must come from upstream or amortization |
 | GPU packing from original AoS can feed compact U16 input | Pack alone `0.2115 ms`; pack plus U16 compact consumer `0.3535 ms` | Nsight on the U16 pack reports `210.272 us`, `92.81%` DRAM throughput, `268 MB` reads, `43 MB` writes, `16,777,216` L1 load sectors, and `2,097,152` L1 store sectors | Better than FP32 compact packing, but still slower than the `0.31 ms` default when setup is paid every launch |
 | BF16 output might be cheaper enough while staying inside tolerance | `0.2570 ms`, expected failure; first checked element had `rdiff 0.001955` | BF16 has the same output byte count as FP16 here but too few mantissa bits for the benchmark tolerance | Do not use BF16 unless the tolerance relaxes or output error is judged differently downstream |
@@ -254,7 +256,7 @@ directories:
 - [x] Test packed four-half output stores. It ties the two-`half2` path.
 - [x] Test BF16 output. It is too coarse for the `1e-3` tolerance.
 - [x] Test setup/layout changes that reduce actual input sectors, not just
-  nominal input bytes. Compact U16 `x/w` input is the current upper bound.
+  nominal input bytes. Compact U8 `x/w` input is the current upper bound.
 - [x] Measure compact-input setup cost. GPU pack plus compact consume is slower
   than the default if starting from the original float grid.
 - [x] Add hardware-aware report metadata so future GPUs are classified from
@@ -269,6 +271,11 @@ directories:
 - [x] Measure U16 compact-input setup cost. GPU pack plus U16 compact consume is
   closer than the FP32 compact path but still slower than the default if paid
   every launch.
+- [x] Test U8 compact input storage. It passes tolerance and becomes the fastest
+  kernel-side variant, with output writes now the dominant remaining traffic.
+- [ ] Probe below U8 only as a boundary experiment. A packed 4-bit x/w input
+  would save one more byte per four outputs, but the tangent lane may exceed the
+  `1e-3` tolerance.
 - [ ] Eliminate or amortize compact-input setup cost. This becomes a practical
   end-to-end win only if the producer emits compact `x/w` directly, packing is
   fused with existing setup, or packing is reused across repeated consumers.

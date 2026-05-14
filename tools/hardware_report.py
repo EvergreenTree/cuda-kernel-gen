@@ -135,9 +135,9 @@ def build_memory_models(dimx, dimy):
     return [
         {
             "name": "current_harness_device_allocations",
-            "bytes_per_element": 10.0,
-            "total_bytes": elements * 10,
-            "note": "Current benchmark allocates float input/output plus FP16 output and float, FP16, and u16 compact x/w scratch buffers.",
+            "bytes_per_element": 10.5,
+            "total_bytes": int(elements * 10.5),
+            "note": "Current benchmark allocates float input/output plus FP16 output and float, FP16, u16, and u8 compact x/w scratch buffers.",
         },
         {
             "name": "float_inplace_default",
@@ -162,6 +162,12 @@ def build_memory_models(dimx, dimy):
             "bytes_per_element": 3.0,
             "total_bytes": elements * 3,
             "note": "Quantized compact consumer: two 16-bit x/w inputs per four outputs plus FP16 output.",
+        },
+        {
+            "name": "compact_u8_xw_input_fp16_output",
+            "bytes_per_element": 2.5,
+            "total_bytes": int(elements * 2.5),
+            "note": "Aggressively quantized compact consumer: two 8-bit x/w inputs per four outputs plus FP16 output.",
         },
     ]
 
@@ -276,6 +282,7 @@ def classify(summary, space):
     half = variants.get("vector4_affine_half_output_sparse_experimental", {})
     compact = variants.get("compact_xw_affine_half_output_experimental", {})
     compact_u16 = variants.get("compact_u16_xw_affine_half_output_experimental", {})
+    compact_u8 = variants.get("compact_u8_xw_affine_half_output_experimental", {})
 
     notes = []
     bottleneck = "unknown"
@@ -309,6 +316,7 @@ def classify(summary, space):
     half_speedup = speedup(default, half)
     compact_speedup = speedup(half or default, compact)
     compact_u16_speedup = speedup(compact, compact_u16)
+    compact_u8_speedup = speedup(compact_u16, compact_u8)
 
     if poly_speedup and poly_speedup < 1.05:
         notes.append(
@@ -330,6 +338,11 @@ def classify(summary, space):
             "U16 fixed-point x/w input improves over FP32 compact x/w on this "
             "memory-bound run while preserving the benchmark tolerance."
         )
+    if compact_u8_speedup and compact_u8_speedup >= 1.03:
+        notes.append(
+            "U8 fixed-point x/w input improves over U16 compact x/w on this "
+            "memory-bound run while staying inside tolerance."
+        )
     if occupancy_pct is not None and occupancy_pct < 50:
         notes.append(
             "Achieved occupancy is low; launch geometry and register pressure "
@@ -348,6 +361,7 @@ def classify(summary, space):
             "default_vs_fp16_output": half_speedup,
             "fp16_output_vs_compact_xw": compact_speedup,
             "compact_xw_vs_compact_u16_xw": compact_u16_speedup,
+            "compact_u16_xw_vs_compact_u8_xw": compact_u8_speedup,
         },
         "notes": notes,
     }

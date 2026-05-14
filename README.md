@@ -95,6 +95,14 @@ make specialized-check
 Builds the explicit fixed-range polynomial binary. This is benchmark-specific:
 it assumes inputs in `[1.0, 1.01]` and `niterations == 5`.
 
+```bash
+make fit-poly
+```
+
+Re-runs the offline least-squares fit for the fixed input interval and writes
+`reports/latest/poly_fits.json`. This documents which polynomial degrees are
+needed to stay within the benchmark's `1e-3` tolerance.
+
 ## Current Optimization
 
 The original kernel launched one warp per SM and had each warp access one
@@ -137,6 +145,7 @@ Measured on the local NVIDIA RTX PRO 6000 Blackwell Server Edition
 | Optimized build, ILP `float4` variant | yes | 0.34 ms |
 | Experimental guarded fixed-range polynomial variant | yes | 0.31 ms |
 | Experimental unchecked fixed-range polynomial variant | yes | 0.31 ms |
+| Experimental sparse affine fixed-range variant | yes | 0.31 ms |
 
 The tuned default is about `43x` faster than the original strict build on this
 Blackwell system. Nsight Compute on the default vector path reports about `91%`
@@ -149,6 +158,13 @@ The unchecked polynomial variant was evaluated as the benchmark-specialized
 path. Its median time was effectively tied with the general vector kernel
 (`0.3095 ms` vs. `0.3099 ms` in the full profile run), so it remains an
 explicit experimental target instead of becoming the default.
+
+The offline fit shows an even cheaper fixed-range approximation is valid:
+`log` and `tan` only need affine fits, while the `cos` and `sin` lanes can be
+constants. That sparse affine variant drops to `22` registers per thread, has no
+spills, and still ties the default at about `0.31 ms`; the remaining bottleneck
+is the required global-memory writeback and transaction granularity, not SFU
+math.
 
 The fatbin path was also checked on the same machine:
 
@@ -172,6 +188,7 @@ directories:
   traffic, and selected Nsight Compute metrics.
 - `index.html`: concise visual report with speedup, memory handling, occupancy,
   and resource-footprint charts.
+- `poly_fits.json`: fixed-range polynomial search results and validation error.
 
 ## Next Moves
 
@@ -188,10 +205,18 @@ directories:
    - eligible warps per scheduler
    - global load/store sector efficiency
    - instruction mix
-3. If benchmark rules allow changing adjacent setup work, test fusing data
+3. If the output ABI can change, test storing quantized half or bfloat16 output
+   plus a conversion-aware checker. With fixed-range approximations, write
+   bandwidth is the next large wall.
+4. If benchmark rules allow changing adjacent setup work, test fusing data
    generation with the kernel or otherwise removing one global read. The current
    optimized kernels are mostly constrained by global memory traffic.
-4. Keep Tensor Cores, WGMMA, TMA, and shared-memory tiling out of the default
+5. Use CUDA Graph replay only for many small launches or end-to-end host
+   overhead studies; it should not move the full-size kernel much because the
+   measured body is already hundreds of microseconds.
+6. Multi-GPU row partitioning is the clean scale-out path for larger arrays.
+   It is orthogonal to the per-GPU kernel and mostly needs host orchestration.
+7. Keep Tensor Cores, WGMMA, TMA, and shared-memory tiling out of the default
    path unless profiling shows a new reason; this workload is scalar
    transcendental math with almost no data reuse.
 

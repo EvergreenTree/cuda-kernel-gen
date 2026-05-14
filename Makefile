@@ -22,7 +22,7 @@ FATBIN_FLAGS := \
 	-gencode arch=compute_120,code=sm_120 \
 	-gencode arch=compute_120,code=compute_120
 
-.PHONY: all check baseline-check specialized-check fatbin-check sanitize bench profile-time profile-space profile report profile-quick clean
+.PHONY: all check baseline-check specialized-check fatbin-check sanitize bench profile-time profile-space profile report profile-quick fit-poly clean
 
 all: optimized.x
 
@@ -70,6 +70,9 @@ profile-quick:
 	$(PYTHON) tools/bench.py --build --runs 1 --nreps 10 --dimx 1024 --dimy 1024 --output-dir $(REPORT_DIR)/quick
 	$(PYTHON) tools/profile.py --dimx 1024 --dimy 1024 --skip-ncu --output-dir $(REPORT_DIR)/quick
 	$(PYTHON) tools/render_report.py --output-dir $(REPORT_DIR)/quick
+
+fit-poly:
+	$(PYTHON) tools/fit_poly.py --output $(REPORT_DIR)/poly_fits.json
 
 clean:
 	rm -f *.x

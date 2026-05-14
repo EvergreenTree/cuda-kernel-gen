@@ -147,6 +147,10 @@ __device__ __forceinline__ float poly2(float s, float c0, float c1, float c2) {
   return fmaf(fmaf(c2, s, c1), s, c0);
 }
 
+__device__ __forceinline__ float affine(float s, float c0, float c1) {
+  return fmaf(c1, s, c0);
+}
+
 template <int NITER>
 __device__ __forceinline__ float apply_fast_log(float value) {
 #pragma unroll
@@ -303,6 +307,67 @@ __global__ void kernel_vector4_poly5_unchecked(float4 *__restrict__ g_data4,
   }
 }
 
+__global__ void kernel_vector4_poly5_sparse(float *__restrict__ g_data,
+                                            int groups) {
+  int group = blockIdx.x * blockDim.x + threadIdx.x;
+  int stride = blockDim.x * gridDim.x;
+  float4 *__restrict__ g_data4 = reinterpret_cast<float4 *>(g_data);
+
+  for (; group < groups; group += stride) {
+    int base = group << 2;
+    float x = g_data[base];
+    float w = g_data[base + 3];
+    float4 result;
+
+    result.x = poly2(fixed_range_s_unchecked(x), 8.08436064f, 0.0109435349f,
+                     -2.07157817e-05f);
+    result.y = 3.13439730f;
+    result.z = 4.68293170f;
+    result.w = poly2(fixed_range_s_unchecked(w), 7.04147149f, 0.135612134f,
+                     0.00235160791f);
+    g_data4[group] = result;
+  }
+}
+
+__global__ void kernel_vector4_affine_sparse(float *__restrict__ g_data,
+                                             int groups) {
+  int group = blockIdx.x * blockDim.x + threadIdx.x;
+  int stride = blockDim.x * gridDim.x;
+  float4 *__restrict__ g_data4 = reinterpret_cast<float4 *>(g_data);
+
+  for (; group < groups; group += stride) {
+    int base = group << 2;
+    float x = g_data[base];
+    float w = g_data[base + 3];
+    float4 result;
+
+    result.x = affine(fixed_range_s_unchecked(x), 8.08435372f, 0.0109435349f);
+    result.y = 3.13439728f;
+    result.z = 4.68293153f;
+    result.w = affine(fixed_range_s_unchecked(w), 7.04225693f, 0.135612134f);
+    g_data4[group] = result;
+  }
+}
+
+__global__ void kernel_vector4_affine_loaded(float4 *__restrict__ g_data4,
+                                             int groups) {
+  int group = blockIdx.x * blockDim.x + threadIdx.x;
+  int stride = blockDim.x * gridDim.x;
+
+  for (; group < groups; group += stride) {
+    float4 value = g_data4[group];
+    float4 result;
+
+    result.x =
+        affine(fixed_range_s_unchecked(value.x), 8.08435372f, 0.0109435349f);
+    result.y = 3.13439728f;
+    result.z = 4.68293153f;
+    result.w =
+        affine(fixed_range_s_unchecked(value.w), 7.04225693f, 0.135612134f);
+    g_data4[group] = result;
+  }
+}
+
 template <int NITER, int ITEMS>
 __global__ void kernel_vector4_ilp_fast(float4 *__restrict__ g_data4,
                                         int groups) {
@@ -362,6 +427,9 @@ enum KernelVariant {
   VARIANT_VECTOR4_ILP_FAST = 3,
   VARIANT_VECTOR4_POLY5_FIXED = 4,
   VARIANT_VECTOR4_POLY5_UNCHECKED = 5,
+  VARIANT_VECTOR4_POLY5_SPARSE = 6,
+  VARIANT_VECTOR4_AFFINE_SPARSE = 7,
+  VARIANT_VECTOR4_AFFINE_LOADED = 8,
 };
 
 const char *variant_name(KernelVariant variant) {
@@ -378,6 +446,12 @@ const char *variant_name(KernelVariant variant) {
       return "vector4_poly5_fixed_range_experimental";
     case VARIANT_VECTOR4_POLY5_UNCHECKED:
       return "vector4_poly5_unchecked_fixed_range_experimental";
+    case VARIANT_VECTOR4_POLY5_SPARSE:
+      return "vector4_poly5_sparse_fixed_range_experimental";
+    case VARIANT_VECTOR4_AFFINE_SPARSE:
+      return "vector4_affine_sparse_fixed_range_experimental";
+    case VARIANT_VECTOR4_AFFINE_LOADED:
+      return "vector4_affine_loaded_fixed_range_experimental";
     default:
       return "unknown";
   }
@@ -427,7 +501,10 @@ void launch_variant(KernelVariant variant, float *d_data, int dimx, int dimy,
   if ((variant == VARIANT_VECTOR4_FAST ||
        variant == VARIANT_VECTOR4_ILP_FAST ||
        variant == VARIANT_VECTOR4_POLY5_FIXED ||
-       variant == VARIANT_VECTOR4_POLY5_UNCHECKED) &&
+       variant == VARIANT_VECTOR4_POLY5_UNCHECKED ||
+       variant == VARIANT_VECTOR4_POLY5_SPARSE ||
+       variant == VARIANT_VECTOR4_AFFINE_SPARSE ||
+       variant == VARIANT_VECTOR4_AFFINE_LOADED) &&
       vector_safe) {
     int groups = total / 4;
     dim3 block(block_size);
@@ -441,6 +518,15 @@ void launch_variant(KernelVariant variant, float *d_data, int dimx, int dimy,
     } else if (variant == VARIANT_VECTOR4_POLY5_UNCHECKED &&
                niterations == 5) {
       kernel_vector4_poly5_unchecked<<<grid, block>>>(d_data4, groups);
+    } else if (variant == VARIANT_VECTOR4_POLY5_SPARSE &&
+               niterations == 5) {
+      kernel_vector4_poly5_sparse<<<grid, block>>>(d_data, groups);
+    } else if (variant == VARIANT_VECTOR4_AFFINE_SPARSE &&
+               niterations == 5) {
+      kernel_vector4_affine_sparse<<<grid, block>>>(d_data, groups);
+    } else if (variant == VARIANT_VECTOR4_AFFINE_LOADED &&
+               niterations == 5) {
+      kernel_vector4_affine_loaded<<<grid, block>>>(d_data4, groups);
     } else if (variant == VARIANT_VECTOR4_ILP_FAST && niterations == 5) {
       kernel_vector4_ilp_fast<5, ITEMS_PER_THREAD><<<grid, block>>>(d_data4,
                                                                     groups);
@@ -461,7 +547,7 @@ void launch_variant(KernelVariant variant, float *d_data, int dimx, int dimy,
 
 void launchKernel(float *d_data, int dimx, int dimy, int niterations) {
 #if USE_POLY_APPROX_DEFAULT
-  launch_variant(VARIANT_VECTOR4_POLY5_UNCHECKED, d_data, dimx, dimy,
+  launch_variant(VARIANT_VECTOR4_AFFINE_LOADED, d_data, dimx, dimy,
                  niterations);
 #else
   launch_variant(VARIANT_VECTOR4_FAST, d_data, dimx, dimy, niterations);
@@ -558,6 +644,9 @@ int main() {
       VARIANT_VECTOR4_ILP_FAST,
       VARIANT_VECTOR4_POLY5_FIXED,
       VARIANT_VECTOR4_POLY5_UNCHECKED,
+      VARIANT_VECTOR4_POLY5_SPARSE,
+      VARIANT_VECTOR4_AFFINE_SPARSE,
+      VARIANT_VECTOR4_AFFINE_LOADED,
   };
   const int variant_count = sizeof(variants) / sizeof(variants[0]);
   float rel_tol = .001f;

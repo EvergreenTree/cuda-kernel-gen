@@ -24,6 +24,18 @@ KERNEL_VARIANTS = (
         "kernel_vector4_poly5_unchecked",
         "vector4_poly5_unchecked_fixed_range_experimental",
     ),
+    (
+        "kernel_vector4_poly5_sparse",
+        "vector4_poly5_sparse_fixed_range_experimental",
+    ),
+    (
+        "kernel_vector4_affine_sparse",
+        "vector4_affine_sparse_fixed_range_experimental",
+    ),
+    (
+        "kernel_vector4_affine_loaded",
+        "vector4_affine_loaded_fixed_range_experimental",
+    ),
     ("kernel_vector4_fast_dynamic", "vector4_dynamic_fallback"),
     ("kernel_scalar_coalesced_dynamic", "scalar_dynamic_fallback"),
 )

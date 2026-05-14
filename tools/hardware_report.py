@@ -135,9 +135,9 @@ def build_memory_models(dimx, dimy):
     return [
         {
             "name": "current_harness_device_allocations",
-            "bytes_per_element": 11.25,
-            "total_bytes": int(elements * 11.25),
-            "note": "Current benchmark allocates float input/output plus FP16 output, U8 output, and float, FP16, u16, u8, and u4 compact x/w scratch buffers.",
+            "bytes_per_element": 12.25,
+            "total_bytes": int(elements * 12.25),
+            "note": "Current benchmark allocates float input/output plus FP16 output, U8 output, downstream score output, and float, FP16, u16, u8, and u4 compact x/w scratch buffers.",
         },
         {
             "name": "float_inplace_default",
@@ -174,6 +174,12 @@ def build_memory_models(dimx, dimy):
             "bytes_per_element": 1.0,
             "total_bytes": elements,
             "note": "Fully benchmark-specialized ABI: U8 x/w input plus U8 x/w output with y/z as implicit constants.",
+        },
+        {
+            "name": "compact_u8_xw_output_score",
+            "bytes_per_element": 1.5,
+            "total_bytes": int(elements * 1.5),
+            "note": "Compact U8 x/w output consumed directly into one float score per four elements.",
         },
         {
             "name": "compact_u4_xw_input_fp16_output_expected_fail",
@@ -298,6 +304,15 @@ def classify(summary, space):
     compact_u8_output = variants.get(
         "compact_u8_xw_affine_u8_xw_output_experimental", {}
     )
+    float_consumer = variants.get("consume_float_output_experimental", {})
+    compact_consumer = variants.get("consume_u8_xw_output_experimental", {})
+    float_consumer_pipeline = variants.get(
+        "vector4_affine_loaded_float_consumer_pipeline_experimental", {}
+    )
+    compact_consumer_pipeline = variants.get(
+        "compact_u8_xw_u8_output_consumer_with_gpu_pack_pipeline_experimental",
+        {},
+    )
 
     notes = []
     bottleneck = "unknown"
@@ -333,6 +348,10 @@ def classify(summary, space):
     compact_u16_speedup = speedup(compact, compact_u16)
     compact_u8_speedup = speedup(compact_u16, compact_u8)
     compact_u8_output_speedup = speedup(compact_u8, compact_u8_output)
+    compact_consumer_speedup = speedup(float_consumer, compact_consumer)
+    compact_consumer_pipeline_speedup = speedup(
+        float_consumer_pipeline, compact_consumer_pipeline
+    )
 
     if poly_speedup and poly_speedup < 1.05:
         notes.append(
@@ -364,6 +383,16 @@ def classify(summary, space):
             "Custom U8 x/w output improves over FP16 output by attacking the "
             "remaining write traffic; this is a strongly ABI-changing path."
         )
+    if compact_consumer_speedup and compact_consumer_speedup >= 1.10:
+        notes.append(
+            "A downstream consumer that stays in compact U8 x/w form is much "
+            "cheaper than consuming expanded float4 output."
+        )
+    if compact_consumer_pipeline_speedup and compact_consumer_pipeline_speedup >= 1.10:
+        notes.append(
+            "Even when U8 input packing is paid every launch, the compact-output "
+            "pipeline wins if downstream consumes compact form directly."
+        )
     if occupancy_pct is not None and occupancy_pct < 50:
         notes.append(
             "Achieved occupancy is low; launch geometry and register pressure "
@@ -384,6 +413,8 @@ def classify(summary, space):
             "compact_xw_vs_compact_u16_xw": compact_u16_speedup,
             "compact_u16_xw_vs_compact_u8_xw": compact_u8_speedup,
             "compact_u8_xw_half_output_vs_u8_xw_output": compact_u8_output_speedup,
+            "float_consumer_vs_compact_u8_consumer": compact_consumer_speedup,
+            "float_pipeline_vs_compact_u8_consumer_pipeline": compact_consumer_pipeline_speedup,
         },
         "notes": notes,
     }

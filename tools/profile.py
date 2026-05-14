@@ -80,6 +80,8 @@ KERNEL_VARIANTS = (
         "kernel_decode_u8_xw_output_to_float4",
         "decode_u8_xw_output_to_float_experimental",
     ),
+    ("kernel_consume_float4_output", "consume_float_output_experimental"),
+    ("kernel_consume_u8_xw_output", "consume_u8_xw_output_experimental"),
     ("kernel_pack_xw_from_float4", "pack_xw_setup_experimental"),
     ("kernel_pack_u16_xw_from_float4", "pack_u16_xw_setup_experimental"),
     ("kernel_pack_u8_xw_from_float4", "pack_u8_xw_setup_experimental"),

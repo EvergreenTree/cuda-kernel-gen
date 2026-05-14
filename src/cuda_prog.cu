@@ -112,6 +112,11 @@ static __host__ __device__ __forceinline__ float unpack_range_u8(
   return lo + ((hi - lo) / 255.0f) * (float)value;
 }
 
+static __host__ __device__ __forceinline__ float downstream_score(
+    float x, float y, float z, float w) {
+  return fmaf(0.5f, x, fmaf(0.25f, y, fmaf(0.125f, z, 0.0625f * w)));
+}
+
 double wall_time_ms() {
   struct timespec ts;
   clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -217,6 +222,40 @@ bool checkU8XwOutputResults(float *gold, const uchar2 *h_data, int dimx,
         printf("rdiff: %f\n", rdiff);
         return false;
       }
+    }
+  }
+  return true;
+}
+
+bool checkConsumerResults(const float *gold, const float *h_scores, int dimx,
+                          int dimy, float rel_tol) {
+  int groups = (dimx * dimy) / 4;
+  for (int group = 0; group < groups; ++group) {
+    int base = group << 2;
+    float gdata = downstream_score(gold[base], gold[base + 1], gold[base + 2],
+                                   gold[base + 3]);
+    float ddata = h_scores[group];
+
+    if (isnan(gdata) || isnan(ddata)) {
+      printf("Nan detected in consumer: gold %f, device %f\n", gdata, ddata);
+      return false;
+    }
+
+    float rdiff;
+    if (fabsf(gdata) == 0.f)
+      rdiff = fabsf(ddata);
+    else
+      rdiff = fabsf(gdata - ddata) / fabsf(gdata);
+
+    if (rdiff > rel_tol) {
+      int idx = base;
+      int iy = idx / dimx;
+      int ix = idx - iy * dimx;
+      printf("Error downstream consumer doesn't match at iy=%d, ix=%d.\n", iy,
+             ix);
+      printf("gold: %f, device: %f\n", gdata, ddata);
+      printf("rdiff: %f\n", rdiff);
+      return false;
     }
   }
   return true;
@@ -780,6 +819,32 @@ __global__ void kernel_decode_u8_xw_output_to_float4(
   }
 }
 
+__global__ void kernel_consume_float4_output(const float4 *__restrict__ in4,
+                                             float *__restrict__ out_scores,
+                                             int groups) {
+  int group = blockIdx.x * blockDim.x + threadIdx.x;
+  int stride = blockDim.x * gridDim.x;
+
+  for (; group < groups; group += stride) {
+    float4 value = in4[group];
+    out_scores[group] = downstream_score(value.x, value.y, value.z, value.w);
+  }
+}
+
+__global__ void kernel_consume_u8_xw_output(const uchar2 *__restrict__ in_xw,
+                                            float *__restrict__ out_scores,
+                                            int groups) {
+  int group = blockIdx.x * blockDim.x + threadIdx.x;
+  int stride = blockDim.x * gridDim.x;
+
+  for (; group < groups; group += stride) {
+    uchar2 packed = in_xw[group];
+    float x = unpack_range_u8(packed.x, OUT_X_MIN, OUT_X_MAX);
+    float w = unpack_range_u8(packed.y, OUT_W_MIN, OUT_W_MAX);
+    out_scores[group] = downstream_score(x, OUT_Y_CONST, OUT_Z_CONST, w);
+  }
+}
+
 #if ENABLE_LAYOUT_SETUP_EXPERIMENT
 __global__ void kernel_pack_xw_from_float4(const float4 *__restrict__ in4,
                                            float2 *__restrict__ out_xw,
@@ -1248,6 +1313,41 @@ void launch_decode_u8_xw_output_variant(const uchar2 *d_out, float *d_data,
                                                         groups);
 }
 
+void launch_consume_float_output_variant(const float *d_data, float *d_scores,
+                                         int dimx, int dimy) {
+  int total = dimx * dimy;
+  int block_size = THREADS_PER_BLOCK;
+  bool vector_safe = ((dimx & 3) == 0) && ((total & 3) == 0) &&
+                     ((((uintptr_t)d_data) & (sizeof(float4) - 1)) == 0);
+  if (!vector_safe) {
+    fprintf(stderr, "Float output consumer requires vector-safe input\n");
+    exit(EXIT_FAILURE);
+  }
+
+  int groups = total / 4;
+  dim3 block(block_size);
+  dim3 grid(tuned_grid_size(groups, block_size));
+  const float4 *d_data4 = reinterpret_cast<const float4 *>(d_data);
+  kernel_consume_float4_output<<<grid, block>>>(d_data4, d_scores, groups);
+}
+
+void launch_consume_u8_xw_output_variant(const uchar2 *d_out, float *d_scores,
+                                         int dimx, int dimy) {
+  int total = dimx * dimy;
+  int block_size = THREADS_PER_BLOCK;
+  bool vector_safe = ((dimx & 3) == 0) && ((total & 3) == 0) &&
+                     ((((uintptr_t)d_out) & (sizeof(uchar2) - 1)) == 0);
+  if (!vector_safe) {
+    fprintf(stderr, "U8 x/w output consumer requires vector-safe input\n");
+    exit(EXIT_FAILURE);
+  }
+
+  int groups = total / 4;
+  dim3 block(block_size);
+  dim3 grid(tuned_grid_size(groups, block_size));
+  kernel_consume_u8_xw_output<<<grid, block>>>(d_out, d_scores, groups);
+}
+
 #if ENABLE_LAYOUT_SETUP_EXPERIMENT
 void launch_pack_xw_variant(const float *d_data, float2 *d_xw, int dimx,
                             int dimy) {
@@ -1669,6 +1769,56 @@ float timing_decode_u8_xw_output_experiment(
   return total_time_ms / nreps;
 }
 
+float timing_consume_float_output_experiment(
+    const float *h_out, float *d_data, float *d_scores, int dimx, int dimy,
+    int nreps, int input_nbytes) {
+  float elapsed_time_ms = 0.0f, total_time_ms = 0.0f;
+  cudaEvent_t start, stop;
+  CUDA_CHECK(cudaEventCreate(&start));
+  CUDA_CHECK(cudaEventCreate(&stop));
+
+  for (int i = 0; i < nreps; i++) {
+    CUDA_CHECK(cudaMemcpy(d_data, h_out, input_nbytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaEventRecord(start, 0));
+    launch_consume_float_output_variant(d_data, d_scores, dimx, dimy);
+    CUDA_CHECK(cudaEventRecord(stop, 0));
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaGetLastError());
+    CUDA_CHECK(cudaEventElapsedTime(&elapsed_time_ms, start, stop));
+    total_time_ms += elapsed_time_ms;
+  }
+
+  CUDA_CHECK(cudaEventDestroy(start));
+  CUDA_CHECK(cudaEventDestroy(stop));
+
+  return total_time_ms / nreps;
+}
+
+float timing_consume_u8_xw_output_experiment(
+    const uchar2 *h_out, uchar2 *d_out, float *d_scores, int dimx, int dimy,
+    int nreps, int output_nbytes) {
+  float elapsed_time_ms = 0.0f, total_time_ms = 0.0f;
+  cudaEvent_t start, stop;
+  CUDA_CHECK(cudaEventCreate(&start));
+  CUDA_CHECK(cudaEventCreate(&stop));
+
+  for (int i = 0; i < nreps; i++) {
+    CUDA_CHECK(cudaMemcpy(d_out, h_out, output_nbytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaEventRecord(start, 0));
+    launch_consume_u8_xw_output_variant(d_out, d_scores, dimx, dimy);
+    CUDA_CHECK(cudaEventRecord(stop, 0));
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaGetLastError());
+    CUDA_CHECK(cudaEventElapsedTime(&elapsed_time_ms, start, stop));
+    total_time_ms += elapsed_time_ms;
+  }
+
+  CUDA_CHECK(cudaEventDestroy(start));
+  CUDA_CHECK(cudaEventDestroy(stop));
+
+  return total_time_ms / nreps;
+}
+
 #if ENABLE_LAYOUT_SETUP_EXPERIMENT
 float timing_pack_xw_experiment(float *d_data, float2 *d_xw,
                                 const float *h_initial, int dimx, int dimy,
@@ -1850,6 +2000,64 @@ float timing_pack_u8_xw_u8_output_decode_pipeline_experiment(
     launch_compact_u8_xw_u8_xw_output_variant(d_xw, d_out, dimx, dimy,
                                               niterations);
     launch_decode_u8_xw_output_variant(d_out, d_data, dimx, dimy);
+    CUDA_CHECK(cudaEventRecord(stop, 0));
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaGetLastError());
+    CUDA_CHECK(cudaEventElapsedTime(&elapsed_time_ms, start, stop));
+    total_time_ms += elapsed_time_ms;
+  }
+
+  CUDA_CHECK(cudaEventDestroy(start));
+  CUDA_CHECK(cudaEventDestroy(stop));
+
+  return total_time_ms / nreps;
+}
+
+float timing_vector4_float_consumer_pipeline_experiment(
+    float *d_data, float *d_scores, const float *h_initial, int dimx, int dimy,
+    int niterations, int nreps, int input_nbytes) {
+  float elapsed_time_ms = 0.0f, total_time_ms = 0.0f;
+  cudaEvent_t start, stop;
+  CUDA_CHECK(cudaEventCreate(&start));
+  CUDA_CHECK(cudaEventCreate(&stop));
+
+  for (int i = 0; i < nreps; i++) {
+    CUDA_CHECK(
+        cudaMemcpy(d_data, h_initial, input_nbytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaEventRecord(start, 0));
+    launch_variant(VARIANT_VECTOR4_AFFINE_LOADED, d_data, dimx, dimy,
+                   niterations);
+    launch_consume_float_output_variant(d_data, d_scores, dimx, dimy);
+    CUDA_CHECK(cudaEventRecord(stop, 0));
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaGetLastError());
+    CUDA_CHECK(cudaEventElapsedTime(&elapsed_time_ms, start, stop));
+    total_time_ms += elapsed_time_ms;
+  }
+
+  CUDA_CHECK(cudaEventDestroy(start));
+  CUDA_CHECK(cudaEventDestroy(stop));
+
+  return total_time_ms / nreps;
+}
+
+float timing_pack_u8_xw_u8_output_consumer_pipeline_experiment(
+    float *d_data, uchar2 *d_xw, uchar2 *d_out, float *d_scores,
+    const float *h_initial, int dimx, int dimy, int niterations, int nreps,
+    int input_nbytes) {
+  float elapsed_time_ms = 0.0f, total_time_ms = 0.0f;
+  cudaEvent_t start, stop;
+  CUDA_CHECK(cudaEventCreate(&start));
+  CUDA_CHECK(cudaEventCreate(&stop));
+
+  for (int i = 0; i < nreps; i++) {
+    CUDA_CHECK(
+        cudaMemcpy(d_data, h_initial, input_nbytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaEventRecord(start, 0));
+    launch_pack_u8_xw_variant(d_data, d_xw, dimx, dimy);
+    launch_compact_u8_xw_u8_xw_output_variant(d_xw, d_out, dimx, dimy,
+                                              niterations);
+    launch_consume_u8_xw_output_variant(d_out, d_scores, dimx, dimy);
     CUDA_CHECK(cudaEventRecord(stop, 0));
     CUDA_CHECK(cudaDeviceSynchronize());
     CUDA_CHECK(cudaGetLastError());
@@ -2071,6 +2279,35 @@ bool verify_decode_u8_xw_output_variant(uchar2 *d_out, float *d_data,
   return checkResults(h_gold, h_data, dimx, dimy, rel_tol);
 }
 
+bool verify_consume_float_output_variant(float *d_data, float *d_scores,
+                                         float *h_scores,
+                                         const float *h_output, int dimx,
+                                         int dimy, int input_nbytes,
+                                         int score_nbytes, float rel_tol) {
+  CUDA_CHECK(cudaMemcpy(d_data, h_output, input_nbytes, cudaMemcpyHostToDevice));
+  launch_consume_float_output_variant(d_data, d_scores, dimx, dimy);
+  CUDA_CHECK(cudaDeviceSynchronize());
+  CUDA_CHECK(cudaGetLastError());
+  CUDA_CHECK(
+      cudaMemcpy(h_scores, d_scores, score_nbytes, cudaMemcpyDeviceToHost));
+  return checkConsumerResults(h_output, h_scores, dimx, dimy, rel_tol);
+}
+
+bool verify_consume_u8_xw_output_variant(uchar2 *d_out, float *d_scores,
+                                         float *h_scores,
+                                         const uchar2 *h_out,
+                                         const float *h_output, int dimx,
+                                         int dimy, int output_nbytes,
+                                         int score_nbytes, float rel_tol) {
+  CUDA_CHECK(cudaMemcpy(d_out, h_out, output_nbytes, cudaMemcpyHostToDevice));
+  launch_consume_u8_xw_output_variant(d_out, d_scores, dimx, dimy);
+  CUDA_CHECK(cudaDeviceSynchronize());
+  CUDA_CHECK(cudaGetLastError());
+  CUDA_CHECK(
+      cudaMemcpy(h_scores, d_scores, score_nbytes, cudaMemcpyDeviceToHost));
+  return checkConsumerResults(h_output, h_scores, dimx, dimy, rel_tol);
+}
+
 #if ENABLE_LAYOUT_SETUP_EXPERIMENT
 bool checkCompactInput(const float2 *expected, const float2 *actual,
                        int groups) {
@@ -2226,6 +2463,45 @@ bool verify_pack_u8_xw_u8_output_decode_pipeline_variant(
 
   computeCpuResults(h_gold, dimx, dimy, niterations, 1);
   return checkResults(h_gold, h_data, dimx, dimy, rel_tol);
+}
+
+bool verify_vector4_float_consumer_pipeline_variant(
+    float *d_data, float *d_scores, float *h_scores, float *h_gold,
+    const float *h_initial, int dimx, int dimy, int niterations,
+    int input_nbytes, int score_nbytes, float rel_tol) {
+  memcpy(h_gold, h_initial, input_nbytes);
+  CUDA_CHECK(
+      cudaMemcpy(d_data, h_initial, input_nbytes, cudaMemcpyHostToDevice));
+  launch_variant(VARIANT_VECTOR4_AFFINE_LOADED, d_data, dimx, dimy,
+                 niterations);
+  launch_consume_float_output_variant(d_data, d_scores, dimx, dimy);
+  CUDA_CHECK(cudaDeviceSynchronize());
+  CUDA_CHECK(cudaGetLastError());
+  CUDA_CHECK(
+      cudaMemcpy(h_scores, d_scores, score_nbytes, cudaMemcpyDeviceToHost));
+
+  computeCpuResults(h_gold, dimx, dimy, niterations, 1);
+  return checkConsumerResults(h_gold, h_scores, dimx, dimy, rel_tol);
+}
+
+bool verify_pack_u8_xw_u8_output_consumer_pipeline_variant(
+    float *d_data, uchar2 *d_xw, uchar2 *d_out, float *d_scores,
+    float *h_scores, float *h_gold, const float *h_initial, int dimx, int dimy,
+    int niterations, int input_nbytes, int score_nbytes, float rel_tol) {
+  memcpy(h_gold, h_initial, input_nbytes);
+  CUDA_CHECK(
+      cudaMemcpy(d_data, h_initial, input_nbytes, cudaMemcpyHostToDevice));
+  launch_pack_u8_xw_variant(d_data, d_xw, dimx, dimy);
+  launch_compact_u8_xw_u8_xw_output_variant(d_xw, d_out, dimx, dimy,
+                                            niterations);
+  launch_consume_u8_xw_output_variant(d_out, d_scores, dimx, dimy);
+  CUDA_CHECK(cudaDeviceSynchronize());
+  CUDA_CHECK(cudaGetLastError());
+  CUDA_CHECK(
+      cudaMemcpy(h_scores, d_scores, score_nbytes, cudaMemcpyDeviceToHost));
+
+  computeCpuResults(h_gold, dimx, dimy, niterations, 1);
+  return checkConsumerResults(h_gold, h_scores, dimx, dimy, rel_tol);
 }
 
 bool verify_pack_u16_xw_pipeline_variant(
@@ -2395,6 +2671,32 @@ float benchmark_decode_u8_xw_output_variant(const uchar2 *h_out,
                                                dimy, nreps, output_nbytes);
 }
 
+float benchmark_consume_float_output_variant(const float *h_out, float *d_data,
+                                             float *d_scores, int dimx,
+                                             int dimy, int nreps,
+                                             int input_nbytes) {
+  CUDA_CHECK(cudaMemcpy(d_data, h_out, input_nbytes, cudaMemcpyHostToDevice));
+  launch_consume_float_output_variant(d_data, d_scores, dimx, dimy);
+  CUDA_CHECK(cudaDeviceSynchronize());
+  CUDA_CHECK(cudaGetLastError());
+
+  return timing_consume_float_output_experiment(
+      h_out, d_data, d_scores, dimx, dimy, nreps, input_nbytes);
+}
+
+float benchmark_consume_u8_xw_output_variant(const uchar2 *h_out,
+                                             uchar2 *d_out, float *d_scores,
+                                             int dimx, int dimy, int nreps,
+                                             int output_nbytes) {
+  CUDA_CHECK(cudaMemcpy(d_out, h_out, output_nbytes, cudaMemcpyHostToDevice));
+  launch_consume_u8_xw_output_variant(d_out, d_scores, dimx, dimy);
+  CUDA_CHECK(cudaDeviceSynchronize());
+  CUDA_CHECK(cudaGetLastError());
+
+  return timing_consume_u8_xw_output_experiment(
+      h_out, d_out, d_scores, dimx, dimy, nreps, output_nbytes);
+}
+
 #if ENABLE_LAYOUT_SETUP_EXPERIMENT
 float benchmark_pack_xw_variant(float *d_data, float2 *d_xw,
                                 const float *h_initial, int dimx, int dimy,
@@ -2503,6 +2805,40 @@ float benchmark_pack_u8_xw_u8_output_decode_pipeline_variant(
       input_nbytes);
 }
 
+float benchmark_vector4_float_consumer_pipeline_variant(
+    float *d_data, float *d_scores, const float *h_initial, int dimx, int dimy,
+    int niterations, int nreps, int input_nbytes) {
+  CUDA_CHECK(
+      cudaMemcpy(d_data, h_initial, input_nbytes, cudaMemcpyHostToDevice));
+  launch_variant(VARIANT_VECTOR4_AFFINE_LOADED, d_data, dimx, dimy,
+                 niterations);
+  launch_consume_float_output_variant(d_data, d_scores, dimx, dimy);
+  CUDA_CHECK(cudaDeviceSynchronize());
+  CUDA_CHECK(cudaGetLastError());
+
+  return timing_vector4_float_consumer_pipeline_experiment(
+      d_data, d_scores, h_initial, dimx, dimy, niterations, nreps,
+      input_nbytes);
+}
+
+float benchmark_pack_u8_xw_u8_output_consumer_pipeline_variant(
+    float *d_data, uchar2 *d_xw, uchar2 *d_out, float *d_scores,
+    const float *h_initial, int dimx, int dimy, int niterations, int nreps,
+    int input_nbytes) {
+  CUDA_CHECK(
+      cudaMemcpy(d_data, h_initial, input_nbytes, cudaMemcpyHostToDevice));
+  launch_pack_u8_xw_variant(d_data, d_xw, dimx, dimy);
+  launch_compact_u8_xw_u8_xw_output_variant(d_xw, d_out, dimx, dimy,
+                                            niterations);
+  launch_consume_u8_xw_output_variant(d_out, d_scores, dimx, dimy);
+  CUDA_CHECK(cudaDeviceSynchronize());
+  CUDA_CHECK(cudaGetLastError());
+
+  return timing_pack_u8_xw_u8_output_consumer_pipeline_experiment(
+      d_data, d_xw, d_out, d_scores, h_initial, dimx, dimy, niterations, nreps,
+      input_nbytes);
+}
+
 float benchmark_pack_u16_xw_pipeline_variant(float *d_data, ushort2 *d_xw,
                                              __half *d_half,
                                              const float *h_initial, int dimx,
@@ -2555,6 +2891,7 @@ int main() {
   int compact_u8_xw_nbytes = groups * (int)sizeof(uchar2);
   int compact_u4_xw_nbytes = groups * (int)sizeof(unsigned char);
   int compact_u8_output_nbytes = groups * (int)sizeof(uchar2);
+  int consumer_score_nbytes = groups * (int)sizeof(float);
 #if ENABLE_BF16_OUTPUT_EXPERIMENT
   int bf16_nbytes = total * (int)sizeof(__nv_bfloat16);
 #endif
@@ -2573,6 +2910,15 @@ int main() {
       (long long)compact_u4_xw_nbytes + half_nbytes;
   long long compact_u8_xw_u8_output_logical_bytes =
       (long long)compact_u8_xw_nbytes + compact_u8_output_nbytes;
+  long long consume_float_logical_bytes =
+      (long long)nbytes + consumer_score_nbytes;
+  long long consume_u8_output_logical_bytes =
+      (long long)compact_u8_output_nbytes + consumer_score_nbytes;
+  long long vector4_float_consumer_pipeline_logical_bytes =
+      (long long)nbytes * 3 + consumer_score_nbytes;
+  long long compact_u8_output_consumer_pipeline_logical_bytes =
+      (long long)nbytes + compact_u8_xw_nbytes * 2LL +
+      compact_u8_output_nbytes * 2LL + consumer_score_nbytes;
 
   cudaDeviceProp prop;
   CUDA_CHECK(cudaGetDeviceProperties(&prop, 0));
@@ -2580,6 +2926,7 @@ int main() {
          prop.minor, prop.multiProcessorCount);
 
   float *d_data = 0, *h_data = 0, *h_gold = 0, *h_initial = 0;
+  float *d_consumer_scores = 0, *h_consumer_scores = 0, *h_float_output = 0;
   __half *d_half = 0, *h_half = 0;
   float2 *d_compact_xw = 0, *h_compact_xw = 0;
   __half2 *d_compact_half_xw = 0, *h_compact_half_xw = 0;
@@ -2605,6 +2952,7 @@ int main() {
   CUDA_CHECK(
       cudaMalloc((void **)&d_compact_u8_output, compact_u8_output_nbytes));
   CUDA_CHECK(cudaMalloc((void **)&d_compact_u4_xw, compact_u4_xw_nbytes));
+  CUDA_CHECK(cudaMalloc((void **)&d_consumer_scores, consumer_score_nbytes));
 #if ENABLE_BF16_OUTPUT_EXPERIMENT
   CUDA_CHECK(cudaMalloc((void **)&d_bf16, bf16_nbytes));
 #endif
@@ -2612,6 +2960,7 @@ int main() {
          (nbytes + half_nbytes + compact_xw_nbytes + compact_half_xw_nbytes
           + compact_u16_xw_nbytes + compact_u8_xw_nbytes
           + compact_u8_output_nbytes + compact_u4_xw_nbytes
+          + consumer_score_nbytes
 #if ENABLE_BF16_OUTPUT_EXPERIMENT
           + bf16_nbytes
 #endif
@@ -2621,6 +2970,8 @@ int main() {
   h_data = (float *)malloc(nbytes);
   h_gold = (float *)malloc(nbytes);
   h_initial = (float *)malloc(nbytes);
+  h_float_output = (float *)malloc(nbytes);
+  h_consumer_scores = (float *)malloc(consumer_score_nbytes);
   h_half = (__half *)malloc(half_nbytes);
   h_compact_xw = (float2 *)malloc(compact_xw_nbytes);
   h_compact_half_xw = (__half2 *)malloc(compact_half_xw_nbytes);
@@ -2636,7 +2987,8 @@ int main() {
 #if ENABLE_BF16_OUTPUT_EXPERIMENT
   h_bf16 = (__nv_bfloat16 *)malloc(bf16_nbytes);
 #endif
-  if (0 == h_data || 0 == h_gold || 0 == h_initial || 0 == h_half ||
+  if (0 == h_data || 0 == h_gold || 0 == h_initial || 0 == h_float_output ||
+      0 == h_consumer_scores || 0 == h_half ||
       0 == h_compact_xw || 0 == h_compact_half_xw
       || 0 == h_compact_u16_xw || 0 == h_compact_u8_xw
       || 0 == h_compact_u8_output || 0 == h_compact_u4_xw
@@ -2653,7 +3005,7 @@ int main() {
     return -2;
   }
   printf("allocated %.2f MB on CPU\n",
-         (3.0f * nbytes + half_nbytes + compact_xw_nbytes +
+         (4.0f * nbytes + consumer_score_nbytes + half_nbytes + compact_xw_nbytes +
           compact_half_xw_nbytes + compact_u16_xw_nbytes +
           compact_u8_xw_nbytes + compact_u8_output_nbytes +
           compact_u4_xw_nbytes
@@ -2667,6 +3019,8 @@ int main() {
   for (int i = 0; i < total; i++) {
     h_initial[i] = 1.0f + 0.01f * (float)rand() / (float)RAND_MAX;
   }
+  memcpy(h_float_output, h_initial, nbytes);
+  computeCpuResults(h_float_output, dimx, dimy, niterations, 1);
   for (int group = 0; group < groups; ++group) {
     int base = group << 2;
     h_compact_xw[group].x = h_initial[base];
@@ -2823,6 +3177,31 @@ int main() {
          (long long)compact_u8_output_nbytes + nbytes);
   all_pass = all_pass && decode_u8_output_pass;
 
+  bool consume_float_output_pass = verify_consume_float_output_variant(
+      d_data, d_consumer_scores, h_consumer_scores, h_float_output, dimx, dimy,
+      nbytes, consumer_score_nbytes, rel_tol);
+  float consume_float_output_elapsed_time_ms =
+      benchmark_consume_float_output_variant(
+          h_float_output, d_data, d_consumer_scores, dimx, dimy, nreps,
+          nbytes);
+  printf("%s,%s,%8.4f,%lld\n", "consume_float_output_experimental",
+         consume_float_output_pass ? "yes" : "no",
+         consume_float_output_elapsed_time_ms, consume_float_logical_bytes);
+  all_pass = all_pass && consume_float_output_pass;
+
+  bool consume_u8_output_pass = verify_consume_u8_xw_output_variant(
+      d_compact_u8_output, d_consumer_scores, h_consumer_scores,
+      h_compact_u8_output, h_float_output, dimx, dimy, compact_u8_output_nbytes,
+      consumer_score_nbytes, rel_tol);
+  float consume_u8_output_elapsed_time_ms =
+      benchmark_consume_u8_xw_output_variant(
+          h_compact_u8_output, d_compact_u8_output, d_consumer_scores, dimx,
+          dimy, nreps, compact_u8_output_nbytes);
+  printf("%s,%s,%8.4f,%lld\n", "consume_u8_xw_output_experimental",
+         consume_u8_output_pass ? "yes" : "no",
+         consume_u8_output_elapsed_time_ms, consume_u8_output_logical_bytes);
+  all_pass = all_pass && consume_u8_output_pass;
+
   bool compact_u4_xw_pass = verify_compact_u4_xw_half_output_variant(
       d_compact_u4_xw, d_half, h_half, h_gold, h_compact_u4_xw, h_initial,
       dimx, dimy, niterations, nbytes, compact_u4_xw_nbytes, half_nbytes,
@@ -2938,6 +3317,37 @@ int main() {
          (long long)nbytes + compact_u8_xw_nbytes + compact_u8_output_nbytes +
              nbytes);
   all_pass = all_pass && pack_u8_output_decode_pipeline_pass;
+
+  bool vector4_float_consumer_pipeline_pass =
+      verify_vector4_float_consumer_pipeline_variant(
+          d_data, d_consumer_scores, h_consumer_scores, h_gold, h_initial,
+          dimx, dimy, niterations, nbytes, consumer_score_nbytes, rel_tol);
+  float vector4_float_consumer_pipeline_elapsed_time_ms =
+      benchmark_vector4_float_consumer_pipeline_variant(
+          d_data, d_consumer_scores, h_initial, dimx, dimy, niterations, nreps,
+          nbytes);
+  printf("%s,%s,%8.4f,%lld\n",
+         "vector4_affine_loaded_float_consumer_pipeline_experimental",
+         vector4_float_consumer_pipeline_pass ? "yes" : "no",
+         vector4_float_consumer_pipeline_elapsed_time_ms,
+         vector4_float_consumer_pipeline_logical_bytes);
+  all_pass = all_pass && vector4_float_consumer_pipeline_pass;
+
+  bool pack_u8_output_consumer_pipeline_pass =
+      verify_pack_u8_xw_u8_output_consumer_pipeline_variant(
+          d_data, d_compact_u8_xw, d_compact_u8_output, d_consumer_scores,
+          h_consumer_scores, h_gold, h_initial, dimx, dimy, niterations, nbytes,
+          consumer_score_nbytes, rel_tol);
+  float pack_u8_output_consumer_pipeline_elapsed_time_ms =
+      benchmark_pack_u8_xw_u8_output_consumer_pipeline_variant(
+          d_data, d_compact_u8_xw, d_compact_u8_output, d_consumer_scores,
+          h_initial, dimx, dimy, niterations, nreps, nbytes);
+  printf("%s,%s,%8.4f,%lld\n",
+         "compact_u8_xw_u8_output_consumer_with_gpu_pack_pipeline_experimental",
+         pack_u8_output_consumer_pipeline_pass ? "yes" : "no",
+         pack_u8_output_consumer_pipeline_elapsed_time_ms,
+         compact_u8_output_consumer_pipeline_logical_bytes);
+  all_pass = all_pass && pack_u8_output_consumer_pipeline_pass;
 #endif
 
 #if ENABLE_BF16_OUTPUT_EXPERIMENT
@@ -2983,12 +3393,15 @@ int main() {
   if (d_compact_u8_xw) CUDA_CHECK(cudaFree(d_compact_u8_xw));
   if (d_compact_u8_output) CUDA_CHECK(cudaFree(d_compact_u8_output));
   if (d_compact_u4_xw) CUDA_CHECK(cudaFree(d_compact_u4_xw));
+  if (d_consumer_scores) CUDA_CHECK(cudaFree(d_consumer_scores));
 #if ENABLE_BF16_OUTPUT_EXPERIMENT
   if (d_bf16) CUDA_CHECK(cudaFree(d_bf16));
 #endif
   if (h_data) free(h_data);
   if (h_gold) free(h_gold);
   if (h_initial) free(h_initial);
+  if (h_float_output) free(h_float_output);
+  if (h_consumer_scores) free(h_consumer_scores);
   if (h_half) free(h_half);
   if (h_compact_xw) free(h_compact_xw);
   if (h_compact_half_xw) free(h_compact_half_xw);

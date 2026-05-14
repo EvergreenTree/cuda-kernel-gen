@@ -160,6 +160,7 @@ Measured on the local NVIDIA RTX PRO 6000 Blackwell Server Edition
 | Vectorized default | float in/out | yes | 0.31 ms |
 | Fixed-range polynomial / affine family | float in/out | yes | 0.309-0.310 ms |
 | FP16-output affine family | float in, half out | yes | 0.257 ms |
+| Compact `x/w` input + FP16 output | compact float2 in, half out | yes | 0.169 ms |
 | BF16-output affine boundary | float in, BF16 out | expected no | 0.257 ms |
 
 The durable hypotheses, profiler mechanisms, and stop/revisit decisions live in
@@ -183,6 +184,7 @@ and the practical takeaway.
 | Fixed-range quadratic polynomial can remove transcendental calls | `0.309-0.310 ms`, correctness passes | SFU pressure disappears, but Nsight still shows about `91%` DRAM throughput and only about `48%` SM throughput | Math is no longer the wall; global writeback dominates |
 | Sparse polynomial / sparse affine can exploit the narrow input interval | `0.309-0.310 ms`, correctness passes | Offline fit shows `cos`/`sin` can be constants and `log`/`tan` can be affine; sparse affine uses about `22` registers/thread | Good documentation of the benchmark-specialized bound, but still tied with default |
 | FP16 output can reduce the writeback wall if the ABI can change | `0.2572-0.2576 ms`, correctness passes; packed 64-bit store sampled at `0.2573 ms` | Nsight on the sparse FP16 kernel reports `93.84%` DRAM throughput, `5.37%` SM throughput, and the same L1 load-sector footprint as the loaded variant | This is the first post-`float4` speedup; it is real but ABI-changing |
+| Compact input layout can reduce actual input sectors | `0.1687 ms` median over 3 full-size runs | Nsight reports `137.952 us`, `91.8%` DRAM throughput, `134 MB` DRAM reads, and `4,194,304` L1 load sectors versus `16,777,216` for sparse AoS | Strongest result so far, but it is setup/layout-changing; count packing cost unless a producer can emit compact `x/w` directly |
 | BF16 output might be cheaper enough while staying inside tolerance | `0.2570 ms`, expected failure; first checked element had `rdiff 0.001955` | BF16 has the same output byte count as FP16 here but too few mantissa bits for the benchmark tolerance | Do not use BF16 unless the tolerance relaxes or output error is judged differently downstream |
 | SASS should confirm what `tan` actually costs | Default vector SASS contains `MUFU.SIN`, `MUFU.COS`, and `MUFU.RCP` in the tangent lane | `__tanf` lowers to sin/cos/reciprocal-like work, so explicit `sincos` sharing is not free across independent lanes | Worth revisiting only if the iterative scalar path becomes the target again |
 | CUDA Graph replay can amortize launch overhead | Not expected to move the full-size timed kernel | The measured kernel body is already about `0.31 ms`; launch overhead is outside the CUDA-event timing loop | Useful for many small launches or end-to-end host overhead, not this main timing |
@@ -215,8 +217,11 @@ directories:
 - [x] Test FP16 output. It is the current best ABI-changing speed path.
 - [x] Test packed four-half output stores. It ties the two-`half2` path.
 - [x] Test BF16 output. It is too coarse for the `1e-3` tolerance.
-- [ ] Test setup/layout changes that reduce actual input sectors, not just
-  nominal input bytes.
+- [x] Test setup/layout changes that reduce actual input sectors, not just
+  nominal input bytes. Compact `x/w` input is the current upper bound.
+- [ ] Measure or eliminate compact-input setup cost. This becomes a practical
+  end-to-end win only if the producer emits compact `x/w` directly, packing is
+  fused with existing setup, or packing is amortized across repeated consumers.
 - [ ] Use CUDA Graph replay only for many small launches or end-to-end host
   overhead studies.
 - [ ] Add multi-GPU row partitioning only when arrays exceed one GPU or scaling
@@ -235,6 +240,8 @@ directories:
   non-winners. The CPU checker and input reset copies dominate wall time.
 - Track actual memory sectors with Nsight when a sparse idea looks better on
   paper. Nominal bytes have already misled us once.
+- Label upper-bound layout experiments clearly. Compact `x/w` is excellent
+  kernel-side, but not equivalent to a free end-to-end win.
 - Keep commits atomic by axis: launch geometry, approximation, ABI/storage,
   profiling/reporting, and documentation.
 

@@ -512,6 +512,26 @@ __global__ void kernel_vector4_affine_half_output_packed(
   }
 }
 
+__global__ void kernel_compact_xw_affine_half_output(
+    const float2 *__restrict__ in_xw, __half2 *__restrict__ out2, int groups) {
+  int group = blockIdx.x * blockDim.x + threadIdx.x;
+  int stride = blockDim.x * gridDim.x;
+
+  for (; group < groups; group += stride) {
+    float2 value = in_xw[group];
+    float x =
+        affine(fixed_range_s_unchecked(value.x), 8.08435372f, 0.0109435349f);
+    float y = 3.13439728f;
+    float z = 4.68293153f;
+    float w =
+        affine(fixed_range_s_unchecked(value.y), 7.04225693f, 0.135612134f);
+
+    int out = group << 1;
+    out2[out] = __floats2half2_rn(x, y);
+    out2[out + 1] = __floats2half2_rn(z, w);
+  }
+}
+
 #if ENABLE_BF16_OUTPUT_EXPERIMENT
 __global__ void kernel_vector4_affine_bfloat16_output_loaded(
     const float4 *__restrict__ in4, __nv_bfloat162 *__restrict__ out2,
@@ -785,6 +805,28 @@ void launch_half_output_variant(HalfOutputVariant variant, const float *d_in,
                                                   niterations);
 }
 
+void launch_compact_xw_half_output_variant(const float2 *d_xw, __half *d_out,
+                                           int dimx, int dimy,
+                                           int niterations) {
+  int total = dimx * dimy;
+  int block_size = THREADS_PER_BLOCK;
+  bool vector_safe = ((dimx & 3) == 0) && ((total & 3) == 0) &&
+                     ((((uintptr_t)d_xw) & (sizeof(float2) - 1)) == 0) &&
+                     ((((uintptr_t)d_out) & (sizeof(__half2) - 1)) == 0);
+  if (!(niterations == 5 && vector_safe)) {
+    fprintf(stderr,
+            "Compact x/w output experiment requires vector-safe "
+            "niterations=5 input\n");
+    exit(EXIT_FAILURE);
+  }
+
+  int groups = total / 4;
+  dim3 block(block_size);
+  dim3 grid(tuned_grid_size(groups, block_size));
+  __half2 *d_out2 = reinterpret_cast<__half2 *>(d_out);
+  kernel_compact_xw_affine_half_output<<<grid, block>>>(d_xw, d_out2, groups);
+}
+
 #if ENABLE_BF16_OUTPUT_EXPERIMENT
 void launch_bfloat16_output_variant(const float *d_in, __nv_bfloat16 *d_out,
                                     int dimx, int dimy, int niterations) {
@@ -871,6 +913,32 @@ float timing_half_output_experiment(HalfOutputVariant variant, float *d_data,
   return total_time_ms / nreps;
 }
 
+float timing_compact_xw_half_output_experiment(
+    const float2 *h_xw, float2 *d_xw, __half *d_half, int dimx, int dimy,
+    int niterations, int nreps, int compact_nbytes) {
+  float elapsed_time_ms = 0.0f, total_time_ms = 0.0f;
+  cudaEvent_t start, stop;
+  CUDA_CHECK(cudaEventCreate(&start));
+  CUDA_CHECK(cudaEventCreate(&stop));
+
+  for (int i = 0; i < nreps; i++) {
+    CUDA_CHECK(cudaMemcpy(d_xw, h_xw, compact_nbytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaEventRecord(start, 0));
+    launch_compact_xw_half_output_variant(d_xw, d_half, dimx, dimy,
+                                          niterations);
+    CUDA_CHECK(cudaEventRecord(stop, 0));
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaGetLastError());
+    CUDA_CHECK(cudaEventElapsedTime(&elapsed_time_ms, start, stop));
+    total_time_ms += elapsed_time_ms;
+  }
+
+  CUDA_CHECK(cudaEventDestroy(start));
+  CUDA_CHECK(cudaEventDestroy(stop));
+
+  return total_time_ms / nreps;
+}
+
 #if ENABLE_BF16_OUTPUT_EXPERIMENT
 float timing_bfloat16_output_experiment(float *d_data, __nv_bfloat16 *d_bf16,
                                         const float *h_initial, int dimx,
@@ -931,6 +999,22 @@ bool verify_half_output_variant(HalfOutputVariant variant, float *d_data,
   return checkHalfResults(h_gold, h_half, dimx, dimy, rel_tol);
 }
 
+bool verify_compact_xw_half_output_variant(
+    float2 *d_xw, __half *d_half, __half *h_half, float *h_gold,
+    const float2 *h_xw, const float *h_initial, int dimx, int dimy,
+    int niterations, int input_nbytes, int compact_nbytes, int output_nbytes,
+    float rel_tol) {
+  memcpy(h_gold, h_initial, input_nbytes);
+  CUDA_CHECK(cudaMemcpy(d_xw, h_xw, compact_nbytes, cudaMemcpyHostToDevice));
+  launch_compact_xw_half_output_variant(d_xw, d_half, dimx, dimy, niterations);
+  CUDA_CHECK(cudaDeviceSynchronize());
+  CUDA_CHECK(cudaGetLastError());
+  CUDA_CHECK(cudaMemcpy(h_half, d_half, output_nbytes, cudaMemcpyDeviceToHost));
+
+  computeCpuResults(h_gold, dimx, dimy, niterations, 1);
+  return checkHalfResults(h_gold, h_half, dimx, dimy, rel_tol);
+}
+
 #if ENABLE_BF16_OUTPUT_EXPERIMENT
 bool verify_bfloat16_output_variant(float *d_data, __nv_bfloat16 *d_bf16,
                                     __nv_bfloat16 *h_bf16, float *h_gold,
@@ -978,6 +1062,20 @@ float benchmark_half_output_variant(HalfOutputVariant variant, float *d_data,
                                        input_nbytes);
 }
 
+float benchmark_compact_xw_half_output_variant(const float2 *h_xw,
+                                               float2 *d_xw, __half *d_half,
+                                               int dimx, int dimy,
+                                               int niterations, int nreps,
+                                               int compact_nbytes) {
+  CUDA_CHECK(cudaMemcpy(d_xw, h_xw, compact_nbytes, cudaMemcpyHostToDevice));
+  launch_compact_xw_half_output_variant(d_xw, d_half, dimx, dimy, niterations);
+  CUDA_CHECK(cudaDeviceSynchronize());
+  CUDA_CHECK(cudaGetLastError());
+
+  return timing_compact_xw_half_output_experiment(
+      h_xw, d_xw, d_half, dimx, dimy, niterations, nreps, compact_nbytes);
+}
+
 #if ENABLE_BF16_OUTPUT_EXPERIMENT
 float benchmark_bfloat16_output_variant(float *d_data, __nv_bfloat16 *d_bf16,
                                         const float *h_initial, int dimx,
@@ -1004,12 +1102,16 @@ int main() {
   int total = dimx * dimy;
   int nbytes = total * (int)sizeof(float);
   int half_nbytes = total * (int)sizeof(__half);
+  int groups = total / 4;
+  int compact_xw_nbytes = groups * (int)sizeof(float2);
 #if ENABLE_BF16_OUTPUT_EXPERIMENT
   int bf16_nbytes = total * (int)sizeof(__nv_bfloat16);
 #endif
   long long float_logical_bytes = (long long)nbytes * 2;
   long long half_loaded_logical_bytes = (long long)nbytes + half_nbytes;
   long long half_sparse_logical_bytes = (long long)nbytes / 2 + half_nbytes;
+  long long compact_xw_logical_bytes =
+      (long long)compact_xw_nbytes + half_nbytes;
 
   cudaDeviceProp prop;
   CUDA_CHECK(cudaGetDeviceProperties(&prop, 0));
@@ -1018,16 +1120,18 @@ int main() {
 
   float *d_data = 0, *h_data = 0, *h_gold = 0, *h_initial = 0;
   __half *d_half = 0, *h_half = 0;
+  float2 *d_compact_xw = 0, *h_compact_xw = 0;
 #if ENABLE_BF16_OUTPUT_EXPERIMENT
   __nv_bfloat16 *d_bf16 = 0, *h_bf16 = 0;
 #endif
   CUDA_CHECK(cudaMalloc((void **)&d_data, nbytes));
   CUDA_CHECK(cudaMalloc((void **)&d_half, half_nbytes));
+  CUDA_CHECK(cudaMalloc((void **)&d_compact_xw, compact_xw_nbytes));
 #if ENABLE_BF16_OUTPUT_EXPERIMENT
   CUDA_CHECK(cudaMalloc((void **)&d_bf16, bf16_nbytes));
 #endif
   printf("allocated %.2f MB on GPU\n",
-         (nbytes + half_nbytes
+         (nbytes + half_nbytes + compact_xw_nbytes
 #if ENABLE_BF16_OUTPUT_EXPERIMENT
           + bf16_nbytes
 #endif
@@ -1038,10 +1142,12 @@ int main() {
   h_gold = (float *)malloc(nbytes);
   h_initial = (float *)malloc(nbytes);
   h_half = (__half *)malloc(half_nbytes);
+  h_compact_xw = (float2 *)malloc(compact_xw_nbytes);
 #if ENABLE_BF16_OUTPUT_EXPERIMENT
   h_bf16 = (__nv_bfloat16 *)malloc(bf16_nbytes);
 #endif
   if (0 == h_data || 0 == h_gold || 0 == h_initial || 0 == h_half
+      || 0 == h_compact_xw
 #if ENABLE_BF16_OUTPUT_EXPERIMENT
       || 0 == h_bf16
 #endif
@@ -1050,7 +1156,7 @@ int main() {
     return -2;
   }
   printf("allocated %.2f MB on CPU\n",
-         (3.0f * nbytes + half_nbytes
+         (3.0f * nbytes + half_nbytes + compact_xw_nbytes
 #if ENABLE_BF16_OUTPUT_EXPERIMENT
           + bf16_nbytes
 #endif
@@ -1060,6 +1166,11 @@ int main() {
   srand(1234);
   for (int i = 0; i < total; i++) {
     h_initial[i] = 1.0f + 0.01f * (float)rand() / (float)RAND_MAX;
+  }
+  for (int group = 0; group < groups; ++group) {
+    int base = group << 2;
+    h_compact_xw[group].x = h_initial[base];
+    h_compact_xw[group].y = h_initial[base + 3];
   }
 
   const KernelVariant variants[] = {
@@ -1113,6 +1224,18 @@ int main() {
     all_pass = all_pass && pass;
   }
 
+  bool compact_xw_pass = verify_compact_xw_half_output_variant(
+      d_compact_xw, d_half, h_half, h_gold, h_compact_xw, h_initial, dimx,
+      dimy, niterations, nbytes, compact_xw_nbytes, half_nbytes, rel_tol);
+  float compact_xw_elapsed_time_ms = benchmark_compact_xw_half_output_variant(
+      h_compact_xw, d_compact_xw, d_half, dimx, dimy, niterations, nreps,
+      compact_xw_nbytes);
+  printf("%s,%s,%8.4f,%lld\n",
+         "compact_xw_affine_half_output_experimental",
+         compact_xw_pass ? "yes" : "no", compact_xw_elapsed_time_ms,
+         compact_xw_logical_bytes);
+  all_pass = all_pass && compact_xw_pass;
+
 #if ENABLE_BF16_OUTPUT_EXPERIMENT
   bool bf16_pass = verify_bfloat16_output_variant(
       d_data, d_bf16, h_bf16, h_gold, h_initial, dimx, dimy, niterations,
@@ -1129,6 +1252,7 @@ int main() {
 
   if (d_data) CUDA_CHECK(cudaFree(d_data));
   if (d_half) CUDA_CHECK(cudaFree(d_half));
+  if (d_compact_xw) CUDA_CHECK(cudaFree(d_compact_xw));
 #if ENABLE_BF16_OUTPUT_EXPERIMENT
   if (d_bf16) CUDA_CHECK(cudaFree(d_bf16));
 #endif
@@ -1136,6 +1260,7 @@ int main() {
   if (h_gold) free(h_gold);
   if (h_initial) free(h_initial);
   if (h_half) free(h_half);
+  if (h_compact_xw) free(h_compact_xw);
 #if ENABLE_BF16_OUTPUT_EXPERIMENT
   if (h_bf16) free(h_bf16);
 #endif

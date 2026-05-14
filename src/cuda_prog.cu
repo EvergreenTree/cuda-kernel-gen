@@ -183,6 +183,21 @@ __device__ __forceinline__ float affine(float s, float c0, float c1) {
   return fmaf(c1, s, c0);
 }
 
+__device__ __forceinline__ unsigned long long pack_half4(float x, float y,
+                                                         float z, float w) {
+  __half hx_half = __float2half_rn(x);
+  __half hy_half = __float2half_rn(y);
+  __half hz_half = __float2half_rn(z);
+  __half hw_half = __float2half_rn(w);
+  __half_raw hx = hx_half;
+  __half_raw hy = hy_half;
+  __half_raw hz = hz_half;
+  __half_raw hw = hw_half;
+
+  return (unsigned long long)hx.x | ((unsigned long long)hy.x << 16) |
+         ((unsigned long long)hz.x << 32) | ((unsigned long long)hw.x << 48);
+}
+
 template <int NITER>
 __device__ __forceinline__ float apply_fast_log(float value) {
 #pragma unroll
@@ -440,6 +455,25 @@ __global__ void kernel_vector4_affine_half_output_sparse(
   }
 }
 
+__global__ void kernel_vector4_affine_half_output_packed(
+    const float4 *__restrict__ in4, unsigned long long *__restrict__ out64,
+    int groups) {
+  int group = blockIdx.x * blockDim.x + threadIdx.x;
+  int stride = blockDim.x * gridDim.x;
+
+  for (; group < groups; group += stride) {
+    float4 value = in4[group];
+    float x =
+        affine(fixed_range_s_unchecked(value.x), 8.08435372f, 0.0109435349f);
+    float y = 3.13439728f;
+    float z = 4.68293153f;
+    float w =
+        affine(fixed_range_s_unchecked(value.w), 7.04225693f, 0.135612134f);
+
+    out64[group] = pack_half4(x, y, z, w);
+  }
+}
+
 template <int NITER, int ITEMS>
 __global__ void kernel_vector4_ilp_fast(float4 *__restrict__ g_data4,
                                         int groups) {
@@ -522,6 +556,7 @@ enum KernelVariant {
 enum HalfOutputVariant {
   HALF_OUTPUT_AFFINE_LOADED = 0,
   HALF_OUTPUT_AFFINE_SPARSE = 1,
+  HALF_OUTPUT_AFFINE_PACKED = 2,
 };
 
 const char *variant_name(KernelVariant variant) {
@@ -555,6 +590,8 @@ const char *half_output_variant_name(HalfOutputVariant variant) {
       return "vector4_affine_half_output_loaded_experimental";
     case HALF_OUTPUT_AFFINE_SPARSE:
       return "vector4_affine_half_output_sparse_experimental";
+    case HALF_OUTPUT_AFFINE_PACKED:
+      return "vector4_affine_half_output_packed_experimental";
     default:
       return "unknown_half_output";
   }
@@ -655,7 +692,8 @@ void launch_half_output_variant(HalfOutputVariant variant, const float *d_in,
   int block_size = THREADS_PER_BLOCK;
   bool vector_safe = ((dimx & 3) == 0) && ((total & 3) == 0) &&
                      ((((uintptr_t)d_in) & (sizeof(float4) - 1)) == 0) &&
-                     ((((uintptr_t)d_out) & (sizeof(__half2) - 1)) == 0);
+                     ((((uintptr_t)d_out) & (sizeof(unsigned long long) - 1)) ==
+                      0);
 
   if (niterations == 5 && vector_safe) {
     int groups = total / 4;
@@ -665,6 +703,12 @@ void launch_half_output_variant(HalfOutputVariant variant, const float *d_in,
 
     if (variant == HALF_OUTPUT_AFFINE_SPARSE) {
       kernel_vector4_affine_half_output_sparse<<<grid, block>>>(d_in, d_out2,
+                                                                groups);
+    } else if (variant == HALF_OUTPUT_AFFINE_PACKED) {
+      const float4 *d_in4 = reinterpret_cast<const float4 *>(d_in);
+      unsigned long long *d_out64 =
+          reinterpret_cast<unsigned long long *>(d_out);
+      kernel_vector4_affine_half_output_packed<<<grid, block>>>(d_in4, d_out64,
                                                                 groups);
     } else {
       const float4 *d_in4 = reinterpret_cast<const float4 *>(d_in);
@@ -856,6 +900,7 @@ int main() {
   const HalfOutputVariant half_output_variants[] = {
       HALF_OUTPUT_AFFINE_LOADED,
       HALF_OUTPUT_AFFINE_SPARSE,
+      HALF_OUTPUT_AFFINE_PACKED,
   };
   const int half_output_variant_count =
       sizeof(half_output_variants) / sizeof(half_output_variants[0]);

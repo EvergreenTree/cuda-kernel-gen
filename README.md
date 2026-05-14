@@ -198,6 +198,12 @@ L1 global-load sectors and about `268 MB` of DRAM reads because the two scalar
 loads per group are 16 bytes apart across warp lanes. The win comes from
 shrinking output traffic, not from skipping the unused input lanes.
 
+A follow-up packed-store variant writes the four half results as one 64-bit
+word per group. It passed correctness and measured `0.2573 ms` in one
+full-size `NREPS=100` sample, which is the same performance tier as the two
+`half2` stores. Store instruction count is therefore not a clear standalone
+wall.
+
 The fatbin path was also checked on the same machine:
 
 ```bash
@@ -226,7 +232,7 @@ and the practical takeaway.
 | Native SASS may differ from PTX JIT on Blackwell | Both native `sm_120` and `CUDA_FORCE_PTX_JIT=1` measured about `0.31 ms` | Driver JIT did not produce a materially faster path than offline ptxas | Keep fatbin/PTX for compatibility, not as a speed lever right now |
 | Fixed-range quadratic polynomial can remove transcendental calls | `0.309-0.310 ms`, correctness passes | SFU pressure disappears, but Nsight still shows about `91%` DRAM throughput and only about `48%` SM throughput | Math is no longer the wall; global writeback dominates |
 | Sparse polynomial / sparse affine can exploit the narrow input interval | `0.309-0.310 ms`, correctness passes | Offline fit shows `cos`/`sin` can be constants and `log`/`tan` can be affine; sparse affine uses about `22` registers/thread | Good documentation of the benchmark-specialized bound, but still tied with default |
-| FP16 output can reduce the writeback wall if the ABI can change | `0.2572-0.2576 ms`, correctness passes | Nsight on the sparse FP16 kernel reports `93.84%` DRAM throughput, `5.37%` SM throughput, and the same L1 load-sector footprint as the loaded variant | This is the first post-`float4` speedup; it is real but ABI-changing |
+| FP16 output can reduce the writeback wall if the ABI can change | `0.2572-0.2576 ms`, correctness passes; packed 64-bit store sampled at `0.2573 ms` | Nsight on the sparse FP16 kernel reports `93.84%` DRAM throughput, `5.37%` SM throughput, and the same L1 load-sector footprint as the loaded variant | This is the first post-`float4` speedup; it is real but ABI-changing |
 | SASS should confirm what `tan` actually costs | Default vector SASS contains `MUFU.SIN`, `MUFU.COS`, and `MUFU.RCP` in the tangent lane | `__tanf` lowers to sin/cos/reciprocal-like work, so explicit `sincos` sharing is not free across independent lanes | Worth revisiting only if the iterative scalar path becomes the target again |
 | CUDA Graph replay can amortize launch overhead | Not expected to move the full-size timed kernel | The measured kernel body is already about `0.31 ms`; launch overhead is outside the CUDA-event timing loop | Useful for many small launches or end-to-end host overhead, not this main timing |
 | Tensor Cores / MMA for polynomial evaluation might use idle units | Not implemented as default; expected to lose at the current fitted degree | The valid approximation is degree `0-1` per lane, so building or storing a Vandermonde-like matrix would add scalar work and memory traffic for a tiny GEMM | Revisit only for high-degree fits, many output functions per input, or a batched layout that amortizes basis construction |
@@ -263,9 +269,9 @@ directories:
    - global load/store sector efficiency
    - instruction mix
 3. If the output ABI can change, FP16 output is the current best experimental
-   path. The next write-side tests are packing the four half results into one
-   64-bit store per group, checking whether downstream code can consume half
-   natively, and measuring whether bfloat16 is too coarse for the `1e-3`
+   path. Packing the four half results into one 64-bit store ties the two
+   `half2` stores, so the next ABI-side tests are whether downstream code can
+   consume half natively and whether bfloat16 is too coarse for the `1e-3`
    tolerance.
 4. If benchmark rules allow changing adjacent setup work, test fusing data
    generation with the kernel or otherwise removing one global read. The current

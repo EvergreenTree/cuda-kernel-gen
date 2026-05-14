@@ -70,6 +70,7 @@ KERNEL_VARIANTS = (
     ),
     ("kernel_pack_xw_from_float4", "pack_xw_setup_experimental"),
     ("kernel_pack_u16_xw_from_float4", "pack_u16_xw_setup_experimental"),
+    ("kernel_pack_u8_xw_from_float4", "pack_u8_xw_setup_experimental"),
     ("kernel_scalar_fast_half_output", "scalar_fast_half_output_fallback"),
     ("kernel_vector4_fast_dynamic", "vector4_dynamic_fallback"),
     ("kernel_scalar_coalesced_dynamic", "scalar_dynamic_fallback"),

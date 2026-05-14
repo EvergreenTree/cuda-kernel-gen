@@ -188,6 +188,7 @@ Measured on the local NVIDIA RTX PRO 6000 Blackwell Server Edition
 | Compact U16 `x/w` input + FP16 output | compact ushort2 in, half out | yes | 0.124 ms |
 | Compact U8 `x/w` input + FP16 output | compact uchar2 in, half out | yes | 0.105 ms |
 | GPU pack + compact `x/w` pipeline | float in, half out | yes | 0.445 ms |
+| GPU pack + compact U8 `x/w` pipeline | float in, half out | yes | 0.310 ms |
 | Compact FP16 `x/w` input boundary | compact half2 in, half out | expected no | 0.121 ms |
 | BF16-output affine boundary | float in, BF16 out | expected no | 0.257 ms |
 
@@ -218,11 +219,12 @@ and the practical takeaway.
 | Compact U8 fixed-point input can cut input sectors again | `0.1051 ms` median over 3 full-size runs, correctness passes | Nsight reports `76.896 us`, `78.11%` DRAM throughput, `17.16%` SM throughput, `34 MB` DRAM reads, `63 MB` DRAM writes, and `1,048,576` L1 load sectors | New fastest kernel-side result; output writes now dominate even more strongly |
 | GPU packing from original AoS can feed compact input | Pack alone `0.2565 ms`; pack plus compact consumer `0.4448 ms` | Pack kernel still reads `268 MB`, writes about `81 MB`, and requests `16,777,216` L1 load sectors | Not an end-to-end win when starting from the original float grid; compact layout must come from upstream or amortization |
 | GPU packing from original AoS can feed compact U16 input | Pack alone `0.2115 ms`; pack plus U16 compact consumer `0.3535 ms` | Nsight on the U16 pack reports `210.272 us`, `92.81%` DRAM throughput, `268 MB` reads, `43 MB` writes, `16,777,216` L1 load sectors, and `2,097,152` L1 store sectors | Better than FP32 compact packing, but still slower than the `0.31 ms` default when setup is paid every launch |
+| GPU packing from original AoS can feed compact U8 input | Pack alone `0.1826 ms`; pack plus U8 compact consumer `0.3097 ms` median over 3 full-size runs | Nsight on the U8 pack reports `196.320 us`, `92.78%` DRAM throughput, `268 MB` reads, `23 MB` writes, `16,777,216` L1 load sectors, and `1,048,576` L1 store sectors | This reaches parity with the default when setup is paid every launch; it becomes a win only if packing is fused, reused, or provided upstream |
 | BF16 output might be cheaper enough while staying inside tolerance | `0.2570 ms`, expected failure; first checked element had `rdiff 0.001955` | BF16 has the same output byte count as FP16 here but too few mantissa bits for the benchmark tolerance | Do not use BF16 unless the tolerance relaxes or output error is judged differently downstream |
 | SASS should confirm what `tan` actually costs | Default vector SASS contains `MUFU.SIN`, `MUFU.COS`, and `MUFU.RCP` in the tangent lane | `__tanf` lowers to sin/cos/reciprocal-like work, so explicit `sincos` sharing is not free across independent lanes | Worth revisiting only if the iterative scalar path becomes the target again |
 | CUDA Graph replay can amortize launch overhead | On `64 x 64`, stream H2D+kernel replay measured `0.014572 ms`; graph replay measured `0.013954 ms` | Graph replay trims host submission overhead, but the tested end-to-end replay still includes the H2D copy and tiny kernel work | Useful only for many small launches; it is not a lever for the full-size event-timed kernel |
 | Hardware scale can flip the bottleneck | Report now records GPU count, compute capability, memory size, max clocks, driver, NVCC, and a bottleneck hint | On this Blackwell run, high DRAM pressure plus low SM pressure marks the tuned kernels as memory-throughput bound | Treat every new GPU or problem size as a new measurement point; rerun the profile instead of carrying Blackwell conclusions blindly |
-| Multi-GPU row partitioning should be gated by capacity or throughput need | Current host has one GPU; the current harness model is `640 MiB` device memory for `8192 x 8192` | `hardware.json` now records memory models, 85% headroom checks, and contiguous row-shard ranges from `nvidia-smi` | Do not implement a multi-GPU runner on this box; use the planner to decide when a future host justifies it |
+| Multi-GPU row partitioning should be gated by capacity or throughput need | Current host has one GPU; the current harness model is `672 MiB` device memory for `8192 x 8192` | `hardware.json` now records memory models, 85% headroom checks, and contiguous row-shard ranges from `nvidia-smi` | Do not implement a multi-GPU runner on this box; use the planner to decide when a future host justifies it |
 | Tensor Cores / MMA for polynomial evaluation might use idle units | Not implemented as default; expected to lose at the current fitted degree | The valid approximation is degree `0-1` per lane, so building or storing a Vandermonde-like matrix would add scalar work and memory traffic for a tiny GEMM | Revisit only for high-degree fits, many output functions per input, or a batched layout that amortizes basis construction |
 | TMA, `cp.async`, and shared-memory tiling could overlap memory | Not applicable to the current pointwise path | There is one global read and one global write with no tile reuse | Save these for a problem shape with reuse or producer-consumer tiling |
 
@@ -273,12 +275,15 @@ directories:
   every launch.
 - [x] Test U8 compact input storage. It passes tolerance and becomes the fastest
   kernel-side variant, with output writes now the dominant remaining traffic.
+- [x] Measure U8 compact-input setup cost. GPU pack plus U8 compact consume
+  reaches parity with the default but is not a durable win when setup is paid
+  every launch.
 - [ ] Probe below U8 only as a boundary experiment. A packed 4-bit x/w input
   would save one more byte per four outputs, but the tangent lane may exceed the
   `1e-3` tolerance.
 - [ ] Eliminate or amortize compact-input setup cost. This becomes a practical
-  end-to-end win only if the producer emits compact `x/w` directly, packing is
-  fused with existing setup, or packing is reused across repeated consumers.
+  end-to-end win only if the producer emits compact U8 `x/w` directly, packing
+  is fused with existing setup, or packing is reused across repeated consumers.
 - [ ] Re-run `make profile NCU_PREFIX=sudo` on every materially different GPU,
   CUDA version, clock policy, or problem size before applying this ledger.
 - [ ] Implement and benchmark a true multi-GPU runner only when a host has

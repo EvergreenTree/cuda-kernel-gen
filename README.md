@@ -127,6 +127,14 @@ upper-bound compact `x/w` consumer and the end-to-end GPU pack plus compact
 consumer path.
 
 ```bash
+make graph-experiment
+```
+
+Builds a small `64 x 64` replay test with `NREPS=5000` to compare ordinary
+stream submission against CUDA Graph replay for many tiny H2D-copy-plus-kernel
+launches.
+
+```bash
 make fit-poly
 ```
 
@@ -204,7 +212,7 @@ and the practical takeaway.
 | GPU packing from original AoS can feed compact input | Pack alone `0.2565 ms`; pack plus compact consumer `0.4448 ms` | Pack kernel still reads `268 MB`, writes about `81 MB`, and requests `16,777,216` L1 load sectors | Not an end-to-end win when starting from the original float grid; compact layout must come from upstream or amortization |
 | BF16 output might be cheaper enough while staying inside tolerance | `0.2570 ms`, expected failure; first checked element had `rdiff 0.001955` | BF16 has the same output byte count as FP16 here but too few mantissa bits for the benchmark tolerance | Do not use BF16 unless the tolerance relaxes or output error is judged differently downstream |
 | SASS should confirm what `tan` actually costs | Default vector SASS contains `MUFU.SIN`, `MUFU.COS`, and `MUFU.RCP` in the tangent lane | `__tanf` lowers to sin/cos/reciprocal-like work, so explicit `sincos` sharing is not free across independent lanes | Worth revisiting only if the iterative scalar path becomes the target again |
-| CUDA Graph replay can amortize launch overhead | Not expected to move the full-size timed kernel | The measured kernel body is already about `0.31 ms`; launch overhead is outside the CUDA-event timing loop | Useful for many small launches or end-to-end host overhead, not this main timing |
+| CUDA Graph replay can amortize launch overhead | On `64 x 64`, stream H2D+kernel replay measured `0.014572 ms`; graph replay measured `0.013954 ms` | Graph replay trims host submission overhead, but the tested end-to-end replay still includes the H2D copy and tiny kernel work | Useful only for many small launches; it is not a lever for the full-size event-timed kernel |
 | Hardware scale can flip the bottleneck | Report now records GPU count, compute capability, memory size, max clocks, driver, NVCC, and a bottleneck hint | On this Blackwell run, high DRAM pressure plus low SM pressure marks the tuned kernels as memory-throughput bound | Treat every new GPU or problem size as a new measurement point; rerun the profile instead of carrying Blackwell conclusions blindly |
 | Tensor Cores / MMA for polynomial evaluation might use idle units | Not implemented as default; expected to lose at the current fitted degree | The valid approximation is degree `0-1` per lane, so building or storing a Vandermonde-like matrix would add scalar work and memory traffic for a tiny GEMM | Revisit only for high-degree fits, many output functions per input, or a batched layout that amortizes basis construction |
 | TMA, `cp.async`, and shared-memory tiling could overlap memory | Not applicable to the current pointwise path | There is one global read and one global write with no tile reuse | Save these for a problem shape with reuse or producer-consumer tiling |
@@ -243,13 +251,13 @@ directories:
   than the default if starting from the original float grid.
 - [x] Add hardware-aware report metadata so future GPUs are classified from
   their own timings and Nsight counters.
+- [x] Test CUDA Graph replay on many small H2D-copy-plus-kernel launches. It
+  helps only modestly for the measured `64 x 64` replay case.
 - [ ] Eliminate or amortize compact-input setup cost. This becomes a practical
   end-to-end win only if the producer emits compact `x/w` directly, packing is
   fused with existing setup, or packing is reused across repeated consumers.
 - [ ] Re-run `make profile NCU_PREFIX=sudo` on every materially different GPU,
   CUDA version, clock policy, or problem size before applying this ledger.
-- [ ] Use CUDA Graph replay only for many small launches or end-to-end host
-  overhead studies.
 - [ ] Add multi-GPU row partitioning only when arrays exceed one GPU or scaling
   throughput matters more than single-GPU kernel time.
 - [ ] Revisit Tensor Cores/MMA only if a future formulation has high-degree

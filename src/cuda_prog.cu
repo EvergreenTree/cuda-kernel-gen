@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #define CUDA_CHECK(call)                                                   \
   do {                                                                     \
@@ -42,6 +43,10 @@
 #define ENABLE_LAYOUT_SETUP_EXPERIMENT 0
 #endif
 
+#ifndef ENABLE_CUDA_GRAPH_EXPERIMENT
+#define ENABLE_CUDA_GRAPH_EXPERIMENT 0
+#endif
+
 #ifndef NREPS
 #define NREPS 10
 #endif
@@ -56,6 +61,12 @@
 
 static inline int div_up(int a, int b) { return (a + b - 1) / b; }
 static inline int min_int(int a, int b) { return a < b ? a : b; }
+
+double wall_time_ms() {
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  return (double)ts.tv_sec * 1000.0 + (double)ts.tv_nsec / 1.0e6;
+}
 
 bool checkResults(float *gold, float *d_data, int dimx, int dimy,
                   float rel_tol) {
@@ -899,6 +910,101 @@ void launchKernel(float *d_data, int dimx, int dimy, int niterations) {
 #endif
 }
 
+#if ENABLE_CUDA_GRAPH_EXPERIMENT
+void launch_vector4_fast_stream(float *d_data, int dimx, int dimy,
+                                cudaStream_t stream) {
+  int total = dimx * dimy;
+  int block_size = THREADS_PER_BLOCK;
+  bool vector_safe = ((dimx & 3) == 0) && ((total & 3) == 0) &&
+                     ((((uintptr_t)d_data) & (sizeof(float4) - 1)) == 0);
+  if (!vector_safe) {
+    fprintf(stderr, "CUDA graph experiment requires vector-safe input\n");
+    exit(EXIT_FAILURE);
+  }
+
+  int groups = total / 4;
+  dim3 block(block_size);
+  dim3 grid(tuned_grid_size(groups, block_size));
+  float4 *d_data4 = reinterpret_cast<float4 *>(d_data);
+  kernel_vector4_fast<5><<<grid, block, 0, stream>>>(d_data4, groups);
+}
+
+bool verify_graph_output(float *d_data, float *h_data, float *h_gold,
+                         const float *h_initial, int dimx, int dimy,
+                         int nbytes, float rel_tol) {
+  CUDA_CHECK(cudaMemcpy(h_data, d_data, nbytes, cudaMemcpyDeviceToHost));
+  memcpy(h_gold, h_initial, nbytes);
+  computeCpuResults(h_gold, dimx, dimy, 5, 1);
+  return checkResults(h_gold, h_data, dimx, dimy, rel_tol);
+}
+
+float benchmark_stream_copy_kernel(float *d_data, const float *h_initial,
+                                   int dimx, int dimy, int nreps,
+                                   int nbytes) {
+  cudaStream_t stream;
+  float *h_pinned = 0;
+  CUDA_CHECK(cudaStreamCreate(&stream));
+  CUDA_CHECK(cudaHostAlloc((void **)&h_pinned, nbytes, cudaHostAllocDefault));
+  memcpy(h_pinned, h_initial, nbytes);
+
+  CUDA_CHECK(cudaMemcpyAsync(d_data, h_pinned, nbytes, cudaMemcpyHostToDevice,
+                             stream));
+  launch_vector4_fast_stream(d_data, dimx, dimy, stream);
+  CUDA_CHECK(cudaStreamSynchronize(stream));
+  CUDA_CHECK(cudaGetLastError());
+
+  double start_ms = wall_time_ms();
+  for (int i = 0; i < nreps; ++i) {
+    CUDA_CHECK(cudaMemcpyAsync(d_data, h_pinned, nbytes, cudaMemcpyHostToDevice,
+                               stream));
+    launch_vector4_fast_stream(d_data, dimx, dimy, stream);
+  }
+  CUDA_CHECK(cudaStreamSynchronize(stream));
+  CUDA_CHECK(cudaGetLastError());
+  double elapsed_ms = wall_time_ms() - start_ms;
+
+  CUDA_CHECK(cudaFreeHost(h_pinned));
+  CUDA_CHECK(cudaStreamDestroy(stream));
+  return (float)(elapsed_ms / nreps);
+}
+
+float benchmark_graph_copy_kernel(float *d_data, const float *h_initial,
+                                  int dimx, int dimy, int nreps, int nbytes) {
+  cudaStream_t stream;
+  cudaGraph_t graph;
+  cudaGraphExec_t instance;
+  float *h_pinned = 0;
+  CUDA_CHECK(cudaStreamCreate(&stream));
+  CUDA_CHECK(cudaHostAlloc((void **)&h_pinned, nbytes, cudaHostAllocDefault));
+  memcpy(h_pinned, h_initial, nbytes);
+
+  CUDA_CHECK(cudaStreamBeginCapture(stream, cudaStreamCaptureModeGlobal));
+  CUDA_CHECK(
+      cudaMemcpyAsync(d_data, h_pinned, nbytes, cudaMemcpyHostToDevice, stream));
+  launch_vector4_fast_stream(d_data, dimx, dimy, stream);
+  CUDA_CHECK(cudaStreamEndCapture(stream, &graph));
+  CUDA_CHECK(cudaGraphInstantiate(&instance, graph, 0));
+
+  CUDA_CHECK(cudaGraphLaunch(instance, stream));
+  CUDA_CHECK(cudaStreamSynchronize(stream));
+  CUDA_CHECK(cudaGetLastError());
+
+  double start_ms = wall_time_ms();
+  for (int i = 0; i < nreps; ++i) {
+    CUDA_CHECK(cudaGraphLaunch(instance, stream));
+  }
+  CUDA_CHECK(cudaStreamSynchronize(stream));
+  CUDA_CHECK(cudaGetLastError());
+  double elapsed_ms = wall_time_ms() - start_ms;
+
+  CUDA_CHECK(cudaGraphExecDestroy(instance));
+  CUDA_CHECK(cudaGraphDestroy(graph));
+  CUDA_CHECK(cudaFreeHost(h_pinned));
+  CUDA_CHECK(cudaStreamDestroy(stream));
+  return (float)(elapsed_ms / nreps);
+}
+#endif
+
 float timing_experiment(KernelVariant variant, float *d_data,
                         const float *h_initial, int dimx, int dimy,
                         int niterations, int nreps, int nbytes) {
@@ -1455,6 +1561,27 @@ int main() {
          "vector4_affine_bf16_output_loaded_expected_fail",
          bf16_pass ? "yes_unexpected" : "no_expected", bf16_elapsed_time_ms,
          half_loaded_logical_bytes);
+#endif
+
+#if ENABLE_CUDA_GRAPH_EXPERIMENT
+  float stream_elapsed_ms = benchmark_stream_copy_kernel(
+      d_data, h_initial, dimx, dimy, nreps, nbytes);
+  bool stream_pass =
+      verify_graph_output(d_data, h_data, h_gold, h_initial, dimx, dimy, nbytes,
+                          rel_tol);
+  printf("%s,%s,%8.6f,%lld\n", "stream_h2d_vector4_replay_experimental",
+         stream_pass ? "yes" : "no", stream_elapsed_ms, float_logical_bytes);
+  all_pass = all_pass && stream_pass;
+
+  float graph_elapsed_ms = benchmark_graph_copy_kernel(d_data, h_initial, dimx,
+                                                       dimy, nreps, nbytes);
+  bool graph_pass =
+      verify_graph_output(d_data, h_data, h_gold, h_initial, dimx, dimy, nbytes,
+                          rel_tol);
+  printf("%s,%s,%8.6f,%lld\n",
+         "cuda_graph_h2d_vector4_replay_experimental",
+         graph_pass ? "yes" : "no", graph_elapsed_ms, float_logical_bytes);
+  all_pass = all_pass && graph_pass;
 #endif
 
   printf("CUDA: %s\n", cudaGetErrorString(cudaGetLastError()));

@@ -18,6 +18,7 @@ TUNE_FLAGS ?=
 SPECIALIZED_FLAGS ?= -DUSE_POLY_APPROX_DEFAULT=1
 BF16_FLAGS ?= -DENABLE_BF16_OUTPUT_EXPERIMENT=1
 LAYOUT_FLAGS ?= -DENABLE_LAYOUT_SETUP_EXPERIMENT=1
+GRAPH_FLAGS ?= -DENABLE_CUDA_GRAPH_EXPERIMENT=1 -DDIMX=64 -DDIMY=64 -DNREPS=5000
 FATBIN_FLAGS := \
 	-gencode arch=compute_89,code=sm_89 \
 	-gencode arch=compute_90,code=sm_90 \
@@ -25,7 +26,7 @@ FATBIN_FLAGS := \
 	-gencode arch=compute_120,code=sm_120 \
 	-gencode arch=compute_120,code=compute_120
 
-.PHONY: all check baseline-check specialized-check bf16-experiment layout-experiment fatbin-check sanitize bench profile-time profile-space hardware-report profile report profile-quick fit-poly clean
+.PHONY: all check baseline-check specialized-check bf16-experiment layout-experiment graph-experiment fatbin-check sanitize bench profile-time profile-space hardware-report profile report profile-quick fit-poly clean
 
 all: optimized.x
 
@@ -40,6 +41,9 @@ bf16.x: $(OPT_SRC)
 
 layout.x: $(OPT_SRC)
 	$(NVCC) $(COMMON_FLAGS) $(ARCH_FLAGS) $(FAST_FLAGS) $(LAYOUT_FLAGS) $(TUNE_FLAGS) $< -o $@
+
+graph.x: $(OPT_SRC)
+	$(NVCC) $(COMMON_FLAGS) $(ARCH_FLAGS) $(FAST_FLAGS) $(GRAPH_FLAGS) $(TUNE_FLAGS) $< -o $@
 
 baseline.x: $(PROBLEM_SRC)
 	$(NVCC) $(COMMON_FLAGS) $< -o $@
@@ -61,6 +65,9 @@ bf16-experiment: bf16.x
 
 layout-experiment: layout.x
 	./layout.x
+
+graph-experiment: graph.x
+	./graph.x
 
 fatbin-check: fatbin.x
 	./fatbin.x

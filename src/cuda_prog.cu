@@ -316,19 +316,23 @@ __device__ __forceinline__ float fixed_range_s(float value) {
   return fminf(1.f, fmaxf(-1.f, s));
 }
 
-__device__ __forceinline__ float fixed_range_s_unchecked(float value) {
+static __host__ __device__ __forceinline__ float fixed_range_s_unchecked(
+    float value) {
   return (value - 1.005f) * 200.f;
 }
 
-__device__ __forceinline__ float unpack_fixed_u16_xw(unsigned short value) {
+static __host__ __device__ __forceinline__ float unpack_fixed_u16_xw(
+    unsigned short value) {
   return 1.0f + (0.01f / 65535.0f) * (float)value;
 }
 
-__device__ __forceinline__ float unpack_fixed_u8_xw(unsigned char value) {
+static __host__ __device__ __forceinline__ float unpack_fixed_u8_xw(
+    unsigned char value) {
   return 1.0f + (0.01f / 255.0f) * (float)value;
 }
 
-__device__ __forceinline__ float unpack_fixed_u4_xw(unsigned char value) {
+static __host__ __device__ __forceinline__ float unpack_fixed_u4_xw(
+    unsigned char value) {
   return 1.0f + (0.01f / 15.0f) * (float)value;
 }
 
@@ -336,7 +340,8 @@ __device__ __forceinline__ float poly2(float s, float c0, float c1, float c2) {
   return fmaf(fmaf(c2, s, c1), s, c0);
 }
 
-__device__ __forceinline__ float affine(float s, float c0, float c1) {
+static __host__ __device__ __forceinline__ float affine(float s, float c0,
+                                                       float c1) {
   return fmaf(c1, s, c0);
 }
 
@@ -758,6 +763,20 @@ __global__ void kernel_compact_u8_xw_affine_u8_xw_output(
                      0.135612134f);
     out_xw[group] = make_uchar2(pack_range_u8(x, OUT_X_MIN, OUT_X_MAX),
                                 pack_range_u8(w, OUT_W_MIN, OUT_W_MAX));
+  }
+}
+
+__global__ void kernel_decode_u8_xw_output_to_float4(
+    const uchar2 *__restrict__ in_xw, float4 *__restrict__ out4, int groups) {
+  int group = blockIdx.x * blockDim.x + threadIdx.x;
+  int stride = blockDim.x * gridDim.x;
+
+  for (; group < groups; group += stride) {
+    uchar2 packed = in_xw[group];
+    out4[group] =
+        make_float4(unpack_range_u8(packed.x, OUT_X_MIN, OUT_X_MAX),
+                    OUT_Y_CONST, OUT_Z_CONST,
+                    unpack_range_u8(packed.y, OUT_W_MIN, OUT_W_MAX));
   }
 }
 
@@ -1209,6 +1228,26 @@ void launch_compact_u8_xw_u8_xw_output_variant(const uchar2 *d_xw,
                                                             groups);
 }
 
+void launch_decode_u8_xw_output_variant(const uchar2 *d_out, float *d_data,
+                                        int dimx, int dimy) {
+  int total = dimx * dimy;
+  int block_size = THREADS_PER_BLOCK;
+  bool vector_safe = ((dimx & 3) == 0) && ((total & 3) == 0) &&
+                     ((((uintptr_t)d_out) & (sizeof(uchar2) - 1)) == 0) &&
+                     ((((uintptr_t)d_data) & (sizeof(float4) - 1)) == 0);
+  if (!vector_safe) {
+    fprintf(stderr, "U8 x/w output decode requires vector-safe input\n");
+    exit(EXIT_FAILURE);
+  }
+
+  int groups = total / 4;
+  dim3 block(block_size);
+  dim3 grid(tuned_grid_size(groups, block_size));
+  float4 *d_data4 = reinterpret_cast<float4 *>(d_data);
+  kernel_decode_u8_xw_output_to_float4<<<grid, block>>>(d_out, d_data4,
+                                                        groups);
+}
+
 #if ENABLE_LAYOUT_SETUP_EXPERIMENT
 void launch_pack_xw_variant(const float *d_data, float2 *d_xw, int dimx,
                             int dimy) {
@@ -1605,6 +1644,31 @@ float timing_compact_u8_xw_u8_xw_output_experiment(
   return total_time_ms / nreps;
 }
 
+float timing_decode_u8_xw_output_experiment(
+    const uchar2 *h_out, uchar2 *d_out, float *d_data, int dimx, int dimy,
+    int nreps, int output_nbytes) {
+  float elapsed_time_ms = 0.0f, total_time_ms = 0.0f;
+  cudaEvent_t start, stop;
+  CUDA_CHECK(cudaEventCreate(&start));
+  CUDA_CHECK(cudaEventCreate(&stop));
+
+  for (int i = 0; i < nreps; i++) {
+    CUDA_CHECK(cudaMemcpy(d_out, h_out, output_nbytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaEventRecord(start, 0));
+    launch_decode_u8_xw_output_variant(d_out, d_data, dimx, dimy);
+    CUDA_CHECK(cudaEventRecord(stop, 0));
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaGetLastError());
+    CUDA_CHECK(cudaEventElapsedTime(&elapsed_time_ms, start, stop));
+    total_time_ms += elapsed_time_ms;
+  }
+
+  CUDA_CHECK(cudaEventDestroy(start));
+  CUDA_CHECK(cudaEventDestroy(stop));
+
+  return total_time_ms / nreps;
+}
+
 #if ENABLE_LAYOUT_SETUP_EXPERIMENT
 float timing_pack_xw_experiment(float *d_data, float2 *d_xw,
                                 const float *h_initial, int dimx, int dimy,
@@ -1757,6 +1821,35 @@ float timing_pack_u8_xw_u8_output_pipeline_experiment(
     launch_pack_u8_xw_variant(d_data, d_xw, dimx, dimy);
     launch_compact_u8_xw_u8_xw_output_variant(d_xw, d_out, dimx, dimy,
                                               niterations);
+    CUDA_CHECK(cudaEventRecord(stop, 0));
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaGetLastError());
+    CUDA_CHECK(cudaEventElapsedTime(&elapsed_time_ms, start, stop));
+    total_time_ms += elapsed_time_ms;
+  }
+
+  CUDA_CHECK(cudaEventDestroy(start));
+  CUDA_CHECK(cudaEventDestroy(stop));
+
+  return total_time_ms / nreps;
+}
+
+float timing_pack_u8_xw_u8_output_decode_pipeline_experiment(
+    float *d_data, uchar2 *d_xw, uchar2 *d_out, const float *h_initial,
+    int dimx, int dimy, int niterations, int nreps, int input_nbytes) {
+  float elapsed_time_ms = 0.0f, total_time_ms = 0.0f;
+  cudaEvent_t start, stop;
+  CUDA_CHECK(cudaEventCreate(&start));
+  CUDA_CHECK(cudaEventCreate(&stop));
+
+  for (int i = 0; i < nreps; i++) {
+    CUDA_CHECK(
+        cudaMemcpy(d_data, h_initial, input_nbytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaEventRecord(start, 0));
+    launch_pack_u8_xw_variant(d_data, d_xw, dimx, dimy);
+    launch_compact_u8_xw_u8_xw_output_variant(d_xw, d_out, dimx, dimy,
+                                              niterations);
+    launch_decode_u8_xw_output_variant(d_out, d_data, dimx, dimy);
     CUDA_CHECK(cudaEventRecord(stop, 0));
     CUDA_CHECK(cudaDeviceSynchronize());
     CUDA_CHECK(cudaGetLastError());
@@ -1960,6 +2053,24 @@ bool verify_compact_u8_xw_u8_xw_output_variant(
   return checkU8XwOutputResults(h_gold, h_out, dimx, dimy, rel_tol);
 }
 
+bool verify_decode_u8_xw_output_variant(uchar2 *d_out, float *d_data,
+                                        float *h_data, float *h_gold,
+                                        const uchar2 *h_out,
+                                        const float *h_initial, int dimx,
+                                        int dimy, int niterations,
+                                        int input_nbytes, int output_nbytes,
+                                        float rel_tol) {
+  memcpy(h_gold, h_initial, input_nbytes);
+  CUDA_CHECK(cudaMemcpy(d_out, h_out, output_nbytes, cudaMemcpyHostToDevice));
+  launch_decode_u8_xw_output_variant(d_out, d_data, dimx, dimy);
+  CUDA_CHECK(cudaDeviceSynchronize());
+  CUDA_CHECK(cudaGetLastError());
+  CUDA_CHECK(cudaMemcpy(h_data, d_data, input_nbytes, cudaMemcpyDeviceToHost));
+
+  computeCpuResults(h_gold, dimx, dimy, niterations, 1);
+  return checkResults(h_gold, h_data, dimx, dimy, rel_tol);
+}
+
 #if ENABLE_LAYOUT_SETUP_EXPERIMENT
 bool checkCompactInput(const float2 *expected, const float2 *actual,
                        int groups) {
@@ -2096,6 +2207,25 @@ bool verify_pack_u8_xw_u8_output_pipeline_variant(
 
   computeCpuResults(h_gold, dimx, dimy, niterations, 1);
   return checkU8XwOutputResults(h_gold, h_out, dimx, dimy, rel_tol);
+}
+
+bool verify_pack_u8_xw_u8_output_decode_pipeline_variant(
+    float *d_data, uchar2 *d_xw, uchar2 *d_out, float *h_data, float *h_gold,
+    const float *h_initial, int dimx, int dimy, int niterations,
+    int input_nbytes, float rel_tol) {
+  memcpy(h_gold, h_initial, input_nbytes);
+  CUDA_CHECK(
+      cudaMemcpy(d_data, h_initial, input_nbytes, cudaMemcpyHostToDevice));
+  launch_pack_u8_xw_variant(d_data, d_xw, dimx, dimy);
+  launch_compact_u8_xw_u8_xw_output_variant(d_xw, d_out, dimx, dimy,
+                                            niterations);
+  launch_decode_u8_xw_output_variant(d_out, d_data, dimx, dimy);
+  CUDA_CHECK(cudaDeviceSynchronize());
+  CUDA_CHECK(cudaGetLastError());
+  CUDA_CHECK(cudaMemcpy(h_data, d_data, input_nbytes, cudaMemcpyDeviceToHost));
+
+  computeCpuResults(h_gold, dimx, dimy, niterations, 1);
+  return checkResults(h_gold, h_data, dimx, dimy, rel_tol);
 }
 
 bool verify_pack_u16_xw_pipeline_variant(
@@ -2252,6 +2382,19 @@ float benchmark_compact_u8_xw_u8_xw_output_variant(
       h_xw, d_xw, d_out, dimx, dimy, niterations, nreps, compact_nbytes);
 }
 
+float benchmark_decode_u8_xw_output_variant(const uchar2 *h_out,
+                                            uchar2 *d_out, float *d_data,
+                                            int dimx, int dimy, int nreps,
+                                            int output_nbytes) {
+  CUDA_CHECK(cudaMemcpy(d_out, h_out, output_nbytes, cudaMemcpyHostToDevice));
+  launch_decode_u8_xw_output_variant(d_out, d_data, dimx, dimy);
+  CUDA_CHECK(cudaDeviceSynchronize());
+  CUDA_CHECK(cudaGetLastError());
+
+  return timing_decode_u8_xw_output_experiment(h_out, d_out, d_data, dimx,
+                                               dimy, nreps, output_nbytes);
+}
+
 #if ENABLE_LAYOUT_SETUP_EXPERIMENT
 float benchmark_pack_xw_variant(float *d_data, float2 *d_xw,
                                 const float *h_initial, int dimx, int dimy,
@@ -2339,6 +2482,23 @@ float benchmark_pack_u8_xw_u8_output_pipeline_variant(
   CUDA_CHECK(cudaGetLastError());
 
   return timing_pack_u8_xw_u8_output_pipeline_experiment(
+      d_data, d_xw, d_out, h_initial, dimx, dimy, niterations, nreps,
+      input_nbytes);
+}
+
+float benchmark_pack_u8_xw_u8_output_decode_pipeline_variant(
+    float *d_data, uchar2 *d_xw, uchar2 *d_out, const float *h_initial,
+    int dimx, int dimy, int niterations, int nreps, int input_nbytes) {
+  CUDA_CHECK(
+      cudaMemcpy(d_data, h_initial, input_nbytes, cudaMemcpyHostToDevice));
+  launch_pack_u8_xw_variant(d_data, d_xw, dimx, dimy);
+  launch_compact_u8_xw_u8_xw_output_variant(d_xw, d_out, dimx, dimy,
+                                            niterations);
+  launch_decode_u8_xw_output_variant(d_out, d_data, dimx, dimy);
+  CUDA_CHECK(cudaDeviceSynchronize());
+  CUDA_CHECK(cudaGetLastError());
+
+  return timing_pack_u8_xw_u8_output_decode_pipeline_experiment(
       d_data, d_xw, d_out, h_initial, dimx, dimy, niterations, nreps,
       input_nbytes);
 }
@@ -2520,6 +2680,15 @@ int main() {
                                          pack_fixed_u8_xw(h_initial[base + 3]));
     h_compact_u4_xw[group] =
         pack_fixed_u4_pair(h_initial[base], h_initial[base + 3]);
+    float x_in = unpack_fixed_u8_xw(h_compact_u8_xw[group].x);
+    float w_in = unpack_fixed_u8_xw(h_compact_u8_xw[group].y);
+    float x_out =
+        affine(fixed_range_s_unchecked(x_in), 8.08435372f, 0.0109435349f);
+    float w_out =
+        affine(fixed_range_s_unchecked(w_in), 7.04225693f, 0.135612134f);
+    h_compact_u8_output[group] =
+        make_uchar2(pack_range_u8(x_out, OUT_X_MIN, OUT_X_MAX),
+                    pack_range_u8(w_out, OUT_W_MIN, OUT_W_MAX));
   }
 
   const KernelVariant variants[] = {
@@ -2641,6 +2810,19 @@ int main() {
          compact_u8_xw_u8_output_logical_bytes);
   all_pass = all_pass && compact_u8_output_pass;
 
+  bool decode_u8_output_pass = verify_decode_u8_xw_output_variant(
+      d_compact_u8_output, d_data, h_data, h_gold, h_compact_u8_output,
+      h_initial, dimx, dimy, niterations, nbytes, compact_u8_output_nbytes,
+      rel_tol);
+  float decode_u8_output_elapsed_time_ms = benchmark_decode_u8_xw_output_variant(
+      h_compact_u8_output, d_compact_u8_output, d_data, dimx, dimy, nreps,
+      compact_u8_output_nbytes);
+  printf("%s,%s,%8.4f,%lld\n",
+         "decode_u8_xw_output_to_float_experimental",
+         decode_u8_output_pass ? "yes" : "no", decode_u8_output_elapsed_time_ms,
+         (long long)compact_u8_output_nbytes + nbytes);
+  all_pass = all_pass && decode_u8_output_pass;
+
   bool compact_u4_xw_pass = verify_compact_u4_xw_half_output_variant(
       d_compact_u4_xw, d_half, h_half, h_gold, h_compact_u4_xw, h_initial,
       dimx, dimy, niterations, nbytes, compact_u4_xw_nbytes, half_nbytes,
@@ -2740,6 +2922,22 @@ int main() {
          pack_u8_output_pipeline_elapsed_time_ms,
          (long long)nbytes + compact_u8_xw_nbytes + compact_u8_output_nbytes);
   all_pass = all_pass && pack_u8_output_pipeline_pass;
+
+  bool pack_u8_output_decode_pipeline_pass =
+      verify_pack_u8_xw_u8_output_decode_pipeline_variant(
+          d_data, d_compact_u8_xw, d_compact_u8_output, h_data, h_gold,
+          h_initial, dimx, dimy, niterations, nbytes, rel_tol);
+  float pack_u8_output_decode_pipeline_elapsed_time_ms =
+      benchmark_pack_u8_xw_u8_output_decode_pipeline_variant(
+          d_data, d_compact_u8_xw, d_compact_u8_output, h_initial, dimx, dimy,
+          niterations, nreps, nbytes);
+  printf("%s,%s,%8.4f,%lld\n",
+         "compact_u8_xw_u8_output_decode_with_gpu_pack_pipeline_experimental",
+         pack_u8_output_decode_pipeline_pass ? "yes" : "no",
+         pack_u8_output_decode_pipeline_elapsed_time_ms,
+         (long long)nbytes + compact_u8_xw_nbytes + compact_u8_output_nbytes +
+             nbytes);
+  all_pass = all_pass && pack_u8_output_decode_pipeline_pass;
 #endif
 
 #if ENABLE_BF16_OUTPUT_EXPERIMENT

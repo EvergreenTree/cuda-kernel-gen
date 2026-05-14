@@ -188,9 +188,11 @@ Measured on the local NVIDIA RTX PRO 6000 Blackwell Server Edition
 | Compact U16 `x/w` input + FP16 output | compact ushort2 in, half out | yes | 0.124 ms |
 | Compact U8 `x/w` input + FP16 output | compact uchar2 in, half out | yes | 0.105 ms |
 | Compact U8 `x/w` input + U8 `x/w` output | custom compact in/out | yes | 0.025 ms |
+| Decode compact U8 output to float | custom U8 in, float out | yes | 0.197 ms |
 | GPU pack + compact `x/w` pipeline | float in, half out | yes | 0.445 ms |
 | GPU pack + compact U8 `x/w` pipeline | float in, half out | yes | 0.310 ms |
 | GPU pack + compact U8 in/out pipeline | float in, custom U8 out | yes | 0.249 ms |
+| GPU pack + compact U8 in/out + float decode | float in/out via custom path | yes | 0.436 ms |
 | Compact FP16 `x/w` input boundary | compact half2 in, half out | expected no | 0.121 ms |
 | Compact U4 `x/w` input boundary | packed nibbles in, half out | expected no | 0.100 ms |
 | BF16-output affine boundary | float in, BF16 out | expected no | 0.257 ms |
@@ -226,6 +228,7 @@ and the practical takeaway.
 | GPU packing from original AoS can feed compact U16 input | Pack alone `0.2115 ms`; pack plus U16 compact consumer `0.3535 ms` | Nsight on the U16 pack reports `210.272 us`, `92.81%` DRAM throughput, `268 MB` reads, `43 MB` writes, `16,777,216` L1 load sectors, and `2,097,152` L1 store sectors | Better than FP32 compact packing, but still slower than the `0.31 ms` default when setup is paid every launch |
 | GPU packing from original AoS can feed compact U8 input | Pack alone `0.1826 ms`; pack plus U8 compact consumer `0.3097 ms` median over 3 full-size runs | Nsight on the U8 pack reports `196.320 us`, `92.78%` DRAM throughput, `268 MB` reads, `23 MB` writes, `16,777,216` L1 load sectors, and `1,048,576` L1 store sectors | This reaches parity with the default when setup is paid every launch; it becomes a win only if packing is fused, reused, or provided upstream |
 | GPU packing plus custom U8 output can win end-to-end | `0.2492 ms` median over 3 full-size runs from original AoS input | Reuses the measured U8 pack and custom U8-output consumer; logical traffic drops to `320 MiB` for pack input/write plus compact output path | First setup-paid compact win, but it requires the strongest ABI specialization: U8 x/w input, U8 x/w output, and implicit y/z constants |
+| Decoding custom U8 output back to float can erase the win | Decode-only `0.1970 ms`; pack plus custom U8 output plus float decode `0.4355 ms` median over 3 full-size runs | Nsight on decode reports `177.344 us`, `82.98%` DRAM throughput, `34 MB` reads, `199 MB` writes, `1,048,576` L1 load sectors, and `8,388,608` L1 store sectors | Custom output is only attractive if downstream consumes compact form or decode is fused with useful work |
 | BF16 output might be cheaper enough while staying inside tolerance | `0.2570 ms`, expected failure; first checked element had `rdiff 0.001955` | BF16 has the same output byte count as FP16 here but too few mantissa bits for the benchmark tolerance | Do not use BF16 unless the tolerance relaxes or output error is judged differently downstream |
 | SASS should confirm what `tan` actually costs | Default vector SASS contains `MUFU.SIN`, `MUFU.COS`, and `MUFU.RCP` in the tangent lane | `__tanf` lowers to sin/cos/reciprocal-like work, so explicit `sincos` sharing is not free across independent lanes | Worth revisiting only if the iterative scalar path becomes the target again |
 | CUDA Graph replay can amortize launch overhead | On `64 x 64`, stream H2D+kernel replay measured `0.014572 ms`; graph replay measured `0.013954 ms` | Graph replay trims host submission overhead, but the tested end-to-end replay still includes the H2D copy and tiny kernel work | Useful only for many small launches; it is not a lever for the full-size event-timed kernel |
@@ -296,8 +299,11 @@ directories:
 - [x] Measure original-AoS setup plus custom U8 output. U8 input packing reached
   parity with the default when paired with FP16 output; pairing it with custom
   U8 output may create a true end-to-end win.
-- [ ] If custom U8 output becomes the practical path, add a decode/consumer
+- [x] If custom U8 output becomes the practical path, add a decode/consumer
   microbenchmark so the report includes downstream cost, not only producer cost.
+- [ ] Benchmark a realistic compact downstream consumer before committing to the
+  custom U8 output ABI. Decoding immediately back to float is slower than the
+  default path.
 - [ ] Re-run `make profile NCU_PREFIX=sudo` on every materially different GPU,
   CUDA version, clock policy, or problem size before applying this ledger.
 - [ ] Implement and benchmark a true multi-GPU runner only when a host has

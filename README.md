@@ -125,7 +125,8 @@ make layout-experiment
 
 Builds and runs the optional compact-input setup test. This measures both the
 upper-bound compact `x/w` consumers and the end-to-end GPU pack plus compact
-consumer paths.
+consumer paths, including a compact downstream projection that avoids decoding
+the full output grid back to floats.
 
 ```bash
 make graph-experiment
@@ -189,10 +190,14 @@ Measured on the local NVIDIA RTX PRO 6000 Blackwell Server Edition
 | Compact U8 `x/w` input + FP16 output | compact uchar2 in, half out | yes | 0.105 ms |
 | Compact U8 `x/w` input + U8 `x/w` output | custom compact in/out | yes | 0.025 ms |
 | Decode compact U8 output to float | custom U8 in, float out | yes | 0.197 ms |
+| Downstream projection from float output | float4 in, score out | yes | 0.213 ms |
+| Downstream projection from compact U8 output | custom U8 in, score out | yes | 0.027 ms |
 | GPU pack + compact `x/w` pipeline | float in, half out | yes | 0.445 ms |
 | GPU pack + compact U8 `x/w` pipeline | float in, half out | yes | 0.310 ms |
-| GPU pack + compact U8 in/out pipeline | float in, custom U8 out | yes | 0.249 ms |
+| GPU pack + compact U8 in/out pipeline | float in, custom U8 out | yes | 0.250 ms |
 | GPU pack + compact U8 in/out + float decode | float in/out via custom path | yes | 0.436 ms |
+| Float output + downstream projection pipeline | float in/out + score | yes | 0.579 ms |
+| GPU pack + compact U8 in/out + compact projection | float in, custom U8 + score | yes | 0.287 ms |
 | Compact FP16 `x/w` input boundary | compact half2 in, half out | expected no | 0.121 ms |
 | Compact U4 `x/w` input boundary | packed nibbles in, half out | expected no | 0.100 ms |
 | BF16-output affine boundary | float in, BF16 out | expected no | 0.257 ms |
@@ -227,13 +232,14 @@ and the practical takeaway.
 | GPU packing from original AoS can feed compact input | Pack alone `0.2565 ms`; pack plus compact consumer `0.4448 ms` | Pack kernel still reads `268 MB`, writes about `81 MB`, and requests `16,777,216` L1 load sectors | Not an end-to-end win when starting from the original float grid; compact layout must come from upstream or amortization |
 | GPU packing from original AoS can feed compact U16 input | Pack alone `0.2115 ms`; pack plus U16 compact consumer `0.3535 ms` | Nsight on the U16 pack reports `210.272 us`, `92.81%` DRAM throughput, `268 MB` reads, `43 MB` writes, `16,777,216` L1 load sectors, and `2,097,152` L1 store sectors | Better than FP32 compact packing, but still slower than the `0.31 ms` default when setup is paid every launch |
 | GPU packing from original AoS can feed compact U8 input | Pack alone `0.1826 ms`; pack plus U8 compact consumer `0.3097 ms` median over 3 full-size runs | Nsight on the U8 pack reports `196.320 us`, `92.78%` DRAM throughput, `268 MB` reads, `23 MB` writes, `16,777,216` L1 load sectors, and `1,048,576` L1 store sectors | This reaches parity with the default when setup is paid every launch; it becomes a win only if packing is fused, reused, or provided upstream |
-| GPU packing plus custom U8 output can win end-to-end | `0.2492 ms` median over 3 full-size runs from original AoS input | Reuses the measured U8 pack and custom U8-output consumer; logical traffic drops to `320 MiB` for pack input/write plus compact output path | First setup-paid compact win, but it requires the strongest ABI specialization: U8 x/w input, U8 x/w output, and implicit y/z constants |
-| Decoding custom U8 output back to float can erase the win | Decode-only `0.1970 ms`; pack plus custom U8 output plus float decode `0.4355 ms` median over 3 full-size runs | Nsight on decode reports `177.344 us`, `82.98%` DRAM throughput, `34 MB` reads, `199 MB` writes, `1,048,576` L1 load sectors, and `8,388,608` L1 store sectors | Custom output is only attractive if downstream consumes compact form or decode is fused with useful work |
+| GPU packing plus custom U8 output can win end-to-end | `0.2500 ms` median over 3 full-size runs from original AoS input | Reuses the measured U8 pack and custom U8-output consumer; logical traffic drops to `320 MiB` for pack input/write plus compact output path | First setup-paid compact win, but it requires the strongest ABI specialization: U8 x/w input, U8 x/w output, and implicit y/z constants |
+| Decoding custom U8 output back to float can erase the win | Decode-only `0.1972 ms`; pack plus custom U8 output plus float decode `0.4356 ms` median over 3 full-size runs | Nsight on decode reports `177.344 us`, `82.98%` DRAM throughput, `34 MB` reads, `199 MB` writes, `1,048,576` L1 load sectors, and `8,388,608` L1 store sectors | Custom output is only attractive if downstream consumes compact form or decode is fused with useful work |
+| A realistic compact downstream consumer can preserve the custom-output win | Float-output projection `0.2125 ms`; compact-U8 projection `0.0274 ms`; full float pipeline plus projection `0.5789 ms`; setup-paid compact pipeline plus projection `0.2866 ms` | Nsight reports the float consumer at `211.168 us`, `92.61%` DRAM throughput, `268 MB` reads, and `8,388,608` L1 load sectors; compact consumer at `36.640 us`, `80.3%` DRAM throughput, `34 MB` reads, and `1,048,576` L1 load sectors | Custom U8 output is viable only when the next stage consumes compact x/w directly; this is the current best measured end-to-end specialized path |
 | BF16 output might be cheaper enough while staying inside tolerance | `0.2570 ms`, expected failure; first checked element had `rdiff 0.001955` | BF16 has the same output byte count as FP16 here but too few mantissa bits for the benchmark tolerance | Do not use BF16 unless the tolerance relaxes or output error is judged differently downstream |
 | SASS should confirm what `tan` actually costs | Default vector SASS contains `MUFU.SIN`, `MUFU.COS`, and `MUFU.RCP` in the tangent lane | `__tanf` lowers to sin/cos/reciprocal-like work, so explicit `sincos` sharing is not free across independent lanes | Worth revisiting only if the iterative scalar path becomes the target again |
 | CUDA Graph replay can amortize launch overhead | On `64 x 64`, stream H2D+kernel replay measured `0.014572 ms`; graph replay measured `0.013954 ms` | Graph replay trims host submission overhead, but the tested end-to-end replay still includes the H2D copy and tiny kernel work | Useful only for many small launches; it is not a lever for the full-size event-timed kernel |
 | Hardware scale can flip the bottleneck | Report now records GPU count, compute capability, memory size, max clocks, driver, NVCC, and a bottleneck hint | On this Blackwell run, high DRAM pressure plus low SM pressure marks the tuned kernels as memory-throughput bound | Treat every new GPU or problem size as a new measurement point; rerun the profile instead of carrying Blackwell conclusions blindly |
-| Multi-GPU row partitioning should be gated by capacity or throughput need | Current host has one GPU; the current harness model is `720 MiB` device memory for `8192 x 8192` | `hardware.json` now records memory models, 85% headroom checks, and contiguous row-shard ranges from `nvidia-smi` | Do not implement a multi-GPU runner on this box; use the planner to decide when a future host justifies it |
+| Multi-GPU row partitioning should be gated by capacity or throughput need | Current host has one GPU; the current harness model is `784 MiB` device memory for `8192 x 8192` | `hardware.json` now records memory models, 85% headroom checks, and contiguous row-shard ranges from `nvidia-smi` | Do not implement a multi-GPU runner on this box; use the planner to decide when a future host justifies it |
 | Tensor Cores / MMA for polynomial evaluation might use idle units | Not implemented as default; expected to lose at the current fitted degree | The valid approximation is degree `0-1` per lane, so building or storing a Vandermonde-like matrix would add scalar work and memory traffic for a tiny GEMM | Revisit only for high-degree fits, many output functions per input, or a batched layout that amortizes basis construction |
 | TMA, `cp.async`, and shared-memory tiling could overlap memory | Not applicable to the current pointwise path | There is one global read and one global write with no tile reuse | Save these for a problem shape with reuse or producer-consumer tiling |
 
@@ -290,9 +296,10 @@ directories:
 - [x] Probe below U8 only as a boundary experiment. A packed 4-bit x/w input
   would save one more byte per four outputs, but the tangent lane may exceed the
   `1e-3` tolerance.
-- [ ] Eliminate or amortize compact-input setup cost for FP16-output compact
-  paths. Without the custom U8 output ABI, GPU packing still only reaches parity
-  with the default when paid every launch.
+- [x] Close the FP16-output compact setup question for this machine. Without
+  the custom U8 output ABI, GPU packing only reaches parity with the default
+  when paid every launch; it needs upstream/fused/amortized packing to become a
+  durable win.
 - [x] Explore output encoding below FP16 only as an explicit ABI-changing path.
   With U8 input, output writes are the dominant remaining traffic; per-lane
   fixed-point output helps if downstream can decode custom storage.
@@ -301,15 +308,24 @@ directories:
   U8 output creates a true end-to-end win when consumers stay compact.
 - [x] If custom U8 output becomes the practical path, add a decode/consumer
   microbenchmark so the report includes downstream cost, not only producer cost.
-- [ ] Benchmark a realistic compact downstream consumer before committing to the
-  custom U8 output ABI. Decoding immediately back to float is slower than the
-  default path.
-- [ ] Re-run `make profile NCU_PREFIX=sudo` on every materially different GPU,
-  CUDA version, clock policy, or problem size before applying this ledger.
-- [ ] Implement and benchmark a true multi-GPU runner only when a host has
-  multiple GPUs and capacity or throughput goals justify copy/merge overhead.
-- [ ] Revisit Tensor Cores/MMA only if a future formulation has high-degree
-  basis work or many output functions per input.
+- [x] Benchmark a realistic compact downstream consumer before committing to the
+  custom U8 output ABI. Direct compact consumption is about `7.8x` faster than a
+  float-output projection, and the setup-paid compact pipeline is about `2.0x`
+  faster than the float-output pipeline when the consumer stays compact.
+
+## Next-Machine Gates
+
+- Re-run `make profile NCU_PREFIX=sudo` on every materially different GPU, CUDA
+  version, clock policy, or problem size before applying this ledger.
+- Start the next host with `make report NCU_PREFIX=sudo PROFILE_FLAGS="--memory-details"`
+  and compare `hardware.json` bottleneck hints before changing code.
+- Re-check the compact consumer path first: the current best specialized axis is
+  not "custom output" alone, but custom output plus a consumer that stays compact.
+- Implement and benchmark a true multi-GPU runner only when a host has multiple
+  GPUs and capacity or throughput goals justify copy/merge overhead.
+- Revisit Tensor Cores/MMA only if a future formulation has high-degree basis
+  work, many output functions per input, or a batched layout that amortizes basis
+  construction.
 
 ## Iteration Tips
 

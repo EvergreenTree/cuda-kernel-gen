@@ -139,6 +139,10 @@ __device__ __forceinline__ float fixed_range_s(float value) {
   return fminf(1.f, fmaxf(-1.f, s));
 }
 
+__device__ __forceinline__ float fixed_range_s_unchecked(float value) {
+  return (value - 1.005f) * 200.f;
+}
+
 __device__ __forceinline__ float poly2(float s, float c0, float c1, float c2) {
   return fmaf(fmaf(c2, s, c1), s, c0);
 }
@@ -278,6 +282,27 @@ __global__ void kernel_vector4_poly5_fixed(float4 *__restrict__ g_data4,
   }
 }
 
+__global__ void kernel_vector4_poly5_unchecked(float4 *__restrict__ g_data4,
+                                               int groups) {
+  int group = blockIdx.x * blockDim.x + threadIdx.x;
+  int stride = blockDim.x * gridDim.x;
+
+  for (; group < groups; group += stride) {
+    float4 value = g_data4[group];
+    float4 result;
+
+    result.x = poly2(fixed_range_s_unchecked(value.x), 8.08436064f,
+                     0.0109435349f, -2.07157817e-05f);
+    result.y = poly2(fixed_range_s_unchecked(value.y), 3.13439730f,
+                     3.08623268e-05f, -6.11348517e-08f);
+    result.z = poly2(fixed_range_s_unchecked(value.z), 4.68293170f,
+                     0.000150066338f, -4.83905857e-07f);
+    result.w = poly2(fixed_range_s_unchecked(value.w), 7.04147149f,
+                     0.135612134f, 0.00235160791f);
+    g_data4[group] = result;
+  }
+}
+
 template <int NITER, int ITEMS>
 __global__ void kernel_vector4_ilp_fast(float4 *__restrict__ g_data4,
                                         int groups) {
@@ -336,6 +361,7 @@ enum KernelVariant {
   VARIANT_VECTOR4_FAST = 2,
   VARIANT_VECTOR4_ILP_FAST = 3,
   VARIANT_VECTOR4_POLY5_FIXED = 4,
+  VARIANT_VECTOR4_POLY5_UNCHECKED = 5,
 };
 
 const char *variant_name(KernelVariant variant) {
@@ -350,6 +376,8 @@ const char *variant_name(KernelVariant variant) {
       return "vector4_ilp_fast";
     case VARIANT_VECTOR4_POLY5_FIXED:
       return "vector4_poly5_fixed_range_experimental";
+    case VARIANT_VECTOR4_POLY5_UNCHECKED:
+      return "vector4_poly5_unchecked_fixed_range_experimental";
     default:
       return "unknown";
   }
@@ -398,7 +426,8 @@ void launch_variant(KernelVariant variant, float *d_data, int dimx, int dimy,
                      ((((uintptr_t)d_data) & (sizeof(float4) - 1)) == 0);
   if ((variant == VARIANT_VECTOR4_FAST ||
        variant == VARIANT_VECTOR4_ILP_FAST ||
-       variant == VARIANT_VECTOR4_POLY5_FIXED) &&
+       variant == VARIANT_VECTOR4_POLY5_FIXED ||
+       variant == VARIANT_VECTOR4_POLY5_UNCHECKED) &&
       vector_safe) {
     int groups = total / 4;
     dim3 block(block_size);
@@ -409,6 +438,9 @@ void launch_variant(KernelVariant variant, float *d_data, int dimx, int dimy,
     float4 *d_data4 = reinterpret_cast<float4 *>(d_data);
     if (variant == VARIANT_VECTOR4_POLY5_FIXED && niterations == 5) {
       kernel_vector4_poly5_fixed<<<grid, block>>>(d_data4, groups);
+    } else if (variant == VARIANT_VECTOR4_POLY5_UNCHECKED &&
+               niterations == 5) {
+      kernel_vector4_poly5_unchecked<<<grid, block>>>(d_data4, groups);
     } else if (variant == VARIANT_VECTOR4_ILP_FAST && niterations == 5) {
       kernel_vector4_ilp_fast<5, ITEMS_PER_THREAD><<<grid, block>>>(d_data4,
                                                                     groups);
@@ -429,32 +461,36 @@ void launch_variant(KernelVariant variant, float *d_data, int dimx, int dimy,
 
 void launchKernel(float *d_data, int dimx, int dimy, int niterations) {
 #if USE_POLY_APPROX_DEFAULT
-  launch_variant(VARIANT_VECTOR4_POLY5_FIXED, d_data, dimx, dimy, niterations);
+  launch_variant(VARIANT_VECTOR4_POLY5_UNCHECKED, d_data, dimx, dimy,
+                 niterations);
 #else
   launch_variant(VARIANT_VECTOR4_FAST, d_data, dimx, dimy, niterations);
 #endif
 }
 
-float timing_experiment(KernelVariant variant, float *d_data, int dimx,
-                        int dimy, int niterations, int nreps) {
-  float elapsed_time_ms = 0.0f;
+float timing_experiment(KernelVariant variant, float *d_data,
+                        const float *h_initial, int dimx, int dimy,
+                        int niterations, int nreps, int nbytes) {
+  float elapsed_time_ms = 0.0f, total_time_ms = 0.0f;
   cudaEvent_t start, stop;
   CUDA_CHECK(cudaEventCreate(&start));
   CUDA_CHECK(cudaEventCreate(&stop));
 
-  CUDA_CHECK(cudaEventRecord(start, 0));
   for (int i = 0; i < nreps; i++) {
+    CUDA_CHECK(cudaMemcpy(d_data, h_initial, nbytes, cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaEventRecord(start, 0));
     launch_variant(variant, d_data, dimx, dimy, niterations);
+    CUDA_CHECK(cudaEventRecord(stop, 0));
+    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaGetLastError());
+    CUDA_CHECK(cudaEventElapsedTime(&elapsed_time_ms, start, stop));
+    total_time_ms += elapsed_time_ms;
   }
-  CUDA_CHECK(cudaEventRecord(stop, 0));
-  CUDA_CHECK(cudaDeviceSynchronize());
-  CUDA_CHECK(cudaEventElapsedTime(&elapsed_time_ms, start, stop));
-  elapsed_time_ms /= nreps;
 
   CUDA_CHECK(cudaEventDestroy(start));
   CUDA_CHECK(cudaEventDestroy(stop));
 
-  return elapsed_time_ms;
+  return total_time_ms / nreps;
 }
 
 bool verify_variant(KernelVariant variant, float *d_data, float *h_data,
@@ -479,8 +515,8 @@ float benchmark_variant(KernelVariant variant, float *d_data,
   CUDA_CHECK(cudaDeviceSynchronize());
   CUDA_CHECK(cudaGetLastError());
 
-  CUDA_CHECK(cudaMemcpy(d_data, h_initial, nbytes, cudaMemcpyHostToDevice));
-  return timing_experiment(variant, d_data, dimx, dimy, niterations, nreps);
+  return timing_experiment(variant, d_data, h_initial, dimx, dimy, niterations,
+                           nreps, nbytes);
 }
 
 int main() {
@@ -521,6 +557,7 @@ int main() {
       VARIANT_VECTOR4_FAST,
       VARIANT_VECTOR4_ILP_FAST,
       VARIANT_VECTOR4_POLY5_FIXED,
+      VARIANT_VECTOR4_POLY5_UNCHECKED,
   };
   const int variant_count = sizeof(variants) / sizeof(variants[0]);
   float rel_tol = .001f;

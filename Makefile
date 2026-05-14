@@ -14,6 +14,7 @@ COMMON_FLAGS := -O3 -lineinfo -Xcompiler -fopenmp
 ARCH_FLAGS ?= -arch=native
 FAST_FLAGS := --use_fast_math
 TUNE_FLAGS ?=
+SPECIALIZED_FLAGS ?= -DUSE_POLY_APPROX_DEFAULT=1
 FATBIN_FLAGS := \
 	-gencode arch=compute_89,code=sm_89 \
 	-gencode arch=compute_90,code=sm_90 \
@@ -21,12 +22,15 @@ FATBIN_FLAGS := \
 	-gencode arch=compute_120,code=sm_120 \
 	-gencode arch=compute_120,code=compute_120
 
-.PHONY: all check baseline-check fatbin-check sanitize bench profile-time profile-space profile report profile-quick clean
+.PHONY: all check baseline-check specialized-check fatbin-check sanitize bench profile-time profile-space profile report profile-quick clean
 
 all: optimized.x
 
 optimized.x: $(OPT_SRC)
 	$(NVCC) $(COMMON_FLAGS) $(ARCH_FLAGS) $(FAST_FLAGS) $(TUNE_FLAGS) $< -o $@
+
+specialized.x: $(OPT_SRC)
+	$(NVCC) $(COMMON_FLAGS) $(ARCH_FLAGS) $(FAST_FLAGS) $(SPECIALIZED_FLAGS) $(TUNE_FLAGS) $< -o $@
 
 baseline.x: $(PROBLEM_SRC)
 	$(NVCC) $(COMMON_FLAGS) $< -o $@
@@ -39,6 +43,9 @@ check: optimized.x
 
 baseline-check: baseline.x
 	./baseline.x
+
+specialized-check: specialized.x
+	./specialized.x
 
 fatbin-check: fatbin.x
 	./fatbin.x

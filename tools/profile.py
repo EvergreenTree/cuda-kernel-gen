@@ -20,6 +20,10 @@ KERNEL_VARIANTS = (
     ("kernel_vector4_fastILi5E", "vector4_coalesced_fast"),
     ("kernel_vector4_ilp_fast", "vector4_ilp_fast"),
     ("kernel_vector4_poly5_fixed", "vector4_poly5_fixed_range_experimental"),
+    (
+        "kernel_vector4_poly5_unchecked",
+        "vector4_poly5_unchecked_fixed_range_experimental",
+    ),
     ("kernel_vector4_fast_dynamic", "vector4_dynamic_fallback"),
     ("kernel_scalar_coalesced_dynamic", "scalar_dynamic_fallback"),
 )

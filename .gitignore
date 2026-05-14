@@ -1,0 +1,30 @@
+# Build outputs
+*.x
+*.o
+*.obj
+*.so
+*.a
+*.d
+
+# CUDA and profiling artifacts
+*.cubin
+*.fatbin
+*.ptx
+*.sass
+*.ncu-rep
+*.nsys-rep
+*.qdrep
+profile/
+reports/
+
+# Local scratch
+build/
+tmp/
+.cache/
+
+# Editor and OS noise
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*~

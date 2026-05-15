@@ -37,12 +37,13 @@ PRIMARY_VARIANTS = (
     "vector4_coalesced_fast",
     "vector4_affine_half_output_sparse_experimental",
     "compact_u8_xw_affine_half_output_experimental",
-    "compact_u8_xw_affine_u8_xw_output_experimental",
+    "compact_u8_producer_persisting_input_experimental",
     "compact_u8_producer_consumer_persisting_l2_total_experimental",
     "compact_u8_xw_u8_output_consumer_with_gpu_pack_pipeline_experimental",
 )
 
 CLIENT_VARIANTS = (
+    "compact_u8_producer_persisting_input_experimental",
     "compact_u8_xw_affine_u8_xw_output_experimental",
     "compact_u8_producer_consumer_persisting_l2_total_experimental",
     "compact_u8_xw_u8_output_consumer_with_gpu_pack_pipeline_experimental",
@@ -108,13 +109,19 @@ VARIANT_COPY = {
     "compact_u8_xw_affine_u8_xw_output_experimental": {
         "label": "Compact U8 input + U8 output",
         "track": "Specialized ABI",
-        "fit": "Highest kernel-side throughput if downstream can consume compact two-value output.",
+        "fit": "Fastest kernel-only result; does not include a downstream consumer.",
+        "tone": "max",
+    },
+    "compact_u8_producer_persisting_input_experimental": {
+        "label": "L2-persisting U8 in/out kernel",
+        "track": "Extreme ABI",
+        "fit": "Fastest kernel-only result when compact input is reused and fits in persisting L2.",
         "tone": "max",
     },
     "compact_u8_producer_consumer_persisting_l2_total_experimental": {
         "label": "L2-resident U8 in/out pipeline",
         "track": "Extreme ABI",
-        "fit": "U8 input, U8 output, and a compact consumer run back-to-back with persisting L2; valuable only when custom ABI ownership is acceptable.",
+        "fit": "U8 input, U8 output, and compact consumer timed together with persisting L2.",
         "tone": "max",
     },
     "vector4_affine_loaded_float_consumer_pipeline_experimental": {
@@ -164,14 +171,14 @@ CACHE_PLANNING_ROWS = (
         "~180 MiB logical",
         "2 GPUs",
         "3 GPUs",
-        "Dual-die cache can work if the workload respects die locality.",
+        "High HBM3e bandwidth narrows the cache advantage; use L2 mainly for reuse and latency.",
     ),
     (
         "B300",
         "~135 MiB",
         "2 GPUs",
         "4 GPUs",
-        "Comfortable for 256 MiB; larger sets still need sharding.",
+        "Comfortable for 256 MiB; verify L2 upside because HBM is already very fast.",
     ),
 )
 
@@ -289,16 +296,16 @@ def fact_grid(rows):
     return '<div class="fact-grid">' + "".join(items) + "</div>"
 
 
-def append_l2_records(records, l2_cache, strict_ms):
+def append_l2_record(records, l2_cache, strict_ms, name):
     stats = l2_cache.get("variants", {}).get(
-        "compact_u8_producer_consumer_persisting_l2_total_experimental"
+        name
     )
     if not stats:
         return
-    copy = VARIANT_COPY["compact_u8_producer_consumer_persisting_l2_total_experimental"]
+    copy = VARIANT_COPY[name]
     records.append(
         {
-            "name": "compact_u8_producer_consumer_persisting_l2_total_experimental",
+            "name": name,
             "label": copy["label"],
             "track": copy["track"],
             "fit": copy["fit"],
@@ -312,6 +319,21 @@ def append_l2_records(records, l2_cache, strict_ms):
             "spills": None,
             "tone": copy["tone"],
         }
+    )
+
+
+def append_l2_records(records, l2_cache, strict_ms):
+    append_l2_record(
+        records,
+        l2_cache,
+        strict_ms,
+        "compact_u8_producer_persisting_input_experimental",
+    )
+    append_l2_record(
+        records,
+        l2_cache,
+        strict_ms,
+        "compact_u8_producer_consumer_persisting_l2_total_experimental",
     )
 
 
@@ -520,6 +542,21 @@ def l2_latency_bars(l2_cache):
     variants = l2_cache.get("variants", {})
     bar_defs = (
         (
+            "Producer after L2 thrash",
+            "compact_u8_producer_after_l2_thrash_experimental",
+            "Current best kernel shape after cache pressure",
+        ),
+        (
+            "Producer warm",
+            "compact_u8_producer_warm_l2_experimental",
+            "Current best kernel shape with natural reuse",
+        ),
+        (
+            "Producer with persisting input",
+            "compact_u8_producer_persisting_input_experimental",
+            "Current best kernel shape plus L2 input residency",
+        ),
+        (
             "Thrashed consumer",
             "consume_u8_after_l2_thrash_experimental",
             "Cold path after a 256 MiB L2-thrashing pass",
@@ -567,13 +604,21 @@ def l2_latency_bars(l2_cache):
 def l2_residency_section(l2_cache, strict_ms):
     variants = l2_cache.get("variants", {})
     config = l2_cache.get("config", {})
+    producer = variants.get("compact_u8_producer_persisting_input_experimental", {})
+    producer_warm = variants.get("compact_u8_producer_warm_l2_experimental", {})
+    producer_thrashed = variants.get("compact_u8_producer_after_l2_thrash_experimental", {})
     total = variants.get("compact_u8_producer_consumer_persisting_l2_total_experimental", {})
     warm = variants.get("consume_u8_after_producer_warm_l2_experimental", {})
     thrashed = variants.get("consume_u8_after_l2_thrash_experimental", {})
     no_persist_total = variants.get("compact_u8_producer_consumer_total_experimental", {})
-    if not total:
+    if not total and not producer:
         return ""
 
+    producer_gain = speedup(producer_warm.get("median_ms"), producer.get("median_ms"))
+    producer_thrash_gain = speedup(
+        producer_thrashed.get("median_ms"), producer.get("median_ms")
+    )
+    producer_strict_gain = speedup(strict_ms, producer.get("median_ms"))
     warm_gain = speedup(thrashed.get("median_ms"), warm.get("median_ms"))
     total_gain = speedup(no_persist_total.get("median_ms"), total.get("median_ms"))
     strict_gain = speedup(strict_ms, total.get("median_ms"))
@@ -588,16 +633,19 @@ def l2_residency_section(l2_cache, strict_ms):
     <div class="l2-copy">
       <h3>When a custom ABI is worth considering</h3>
       <p>This path is aimed at latency-sensitive customers who can own the compact data contract, producer/consumer coupling, and maintenance burden. It is not the safe library default.</p>
-      <p class="muted">This is the U8 input + U8 output boundary push: the compact producer writes U8 x/w output, then the compact consumer reads it directly. On this Blackwell host, that compact output is {fmt_mib(config.get('compact_output_bytes'))} and fits inside the configured persisting-L2 window. Keeping the stages adjacent cuts the measured producer-plus-consumer total to {fmt_ms(total.get('median_ms'))}, or {fmt_speedup(strict_gain)} against the original client baseline.</p>
+      <p class="muted">There are two useful combinations. First, the current best kernel-only shape can keep its compact U8 input in persisting L2; that measured {fmt_ms(producer.get('median_ms'))}, or {fmt_speedup(producer_strict_gain)} against the original client baseline. Second, the compact producer can write U8 x/w output and keep that output resident for an adjacent compact consumer; that producer-plus-consumer path measured {fmt_ms(total.get('median_ms'))}, or {fmt_speedup(strict_gain)}.</p>
+      <p class="muted">The kernel-only L2 result is the fastest measured row on this host, but it depends on compact input reuse and a working set that fits the persisting-L2 budget. On B200-class systems, very high HBM3e bandwidth narrows the cache advantage, so this tactic should be remeasured rather than assumed.</p>
       <p class="muted">The L2 path does not make the workload compute-bound. It reduces read pressure, but the compact consumer still shows a memory-path profile because it writes the score stream and moves predictable global-memory transactions.</p>
     </div>
     {fact_grid([
         ["Compact output footprint", fmt_mib(config.get("compact_output_bytes"))],
         ["Measured L2 cache", fmt_mib(config.get("l2_cache_bytes"))],
         ["Persisting-L2 budget", fmt_mib(config.get("persisting_l2_max_bytes"))],
+        ["Kernel-only L2 result", fmt_ms(producer.get("median_ms"))],
+        ["Input L2 lift", fmt_speedup(producer_gain)],
+        ["Input L2 vs thrash", fmt_speedup(producer_thrash_gain)],
         ["Warm vs cold consumer", fmt_speedup(warm_gain)],
         ["Persisting total lift", fmt_speedup(total_gain)],
-        ["Custom ABI fit", "HFT / ultra-low latency"],
     ])}
     <h3 class="section-subhead">Measured latency path</h3>
     {l2_latency_bars(l2_cache)}
@@ -665,6 +713,10 @@ def build_html(output_dir):
     default = by_name.get("vector4_coalesced_fast", {})
     fp16 = by_name.get("vector4_affine_half_output_sparse_experimental", {})
     compact = by_name.get("compact_u8_xw_affine_u8_xw_output_experimental", {})
+    l2_producer = by_name.get("compact_u8_producer_persisting_input_experimental", {})
+    l2_pipeline = by_name.get(
+        "compact_u8_producer_consumer_persisting_l2_total_experimental", {}
+    )
     compact_pipeline = by_name.get(
         "compact_u8_xw_u8_output_consumer_with_gpu_pack_pipeline_experimental", {}
     )
@@ -1095,8 +1147,8 @@ code {{
     <div class="hero-grid">
       {stat_card("Original baseline", fmt_ms(strict_ms), "Strict problem definition")}
       {stat_card("Recommended drop-in", fmt_speedup(default.get("speedup_strict")), fmt_ms(default.get("time_ms")))}
-      {stat_card("Best compact kernel", fmt_speedup(compact.get("speedup_strict")), "ABI-changing")}
-      {stat_card("Profiler takeaway", "91.6%", "memory bandwidth in use")}
+      {stat_card("Fastest kernel-only", fmt_speedup((l2_producer or compact).get("speedup_strict")), fmt_ms((l2_producer or compact).get("time_ms")))}
+      {stat_card("Adjacent L2 pipeline", fmt_speedup(l2_pipeline.get("speedup_strict")), fmt_ms(l2_pipeline.get("time_ms")))}
     </div>
   </div>
 </header>
@@ -1107,6 +1159,7 @@ code {{
       <h2>Executive Summary</h2>
       <p>The baseline problem processes a fixed {fmt(summary.get('dimx'), 0)} x {fmt(summary.get('dimy'), 0)} float grid with five dependent transcendental iterations per element and a 1e-3 relative tolerance check.</p>
       <p>The recommended production default is the vectorized float kernel. It keeps the input/output contract intact and moves the runtime from {fmt_ms(strict_ms)} to {fmt_ms(default.get("time_ms"))} on this Blackwell host.</p>
+      <p>The fastest compact row combines the U8 input/U8 output kernel with persisting L2 on the compact input. The adjacent L2 pipeline is slower because it times useful downstream consumer work too; use that row to judge product pipelines, not standalone kernel throughput.</p>
       <p>Nsight shows the optimized path is bandwidth-limited: the GPU is moving data near peak DRAM throughput while arithmetic units still have headroom. That does not mean the architecture is deficient; it means the next gains come primarily from moving fewer bytes, or from running on hardware with more memory bandwidth.</p>
     </div>
     <div class="decision">

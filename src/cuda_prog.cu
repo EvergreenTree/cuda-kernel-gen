@@ -3383,6 +3383,55 @@ static bool verify_l2_scores(float *d_scores, float *h_scores, float *h_gold,
   return checkConsumerResults(h_gold, h_scores, dimx, dimy, rel_tol);
 }
 
+static L2Timing benchmark_l2_producer(bool thrash_before_producer,
+                                      bool persist_input, const uchar2 *d_xw,
+                                      uchar2 *d_out, float *d_scores,
+                                      uint4 *d_thrash, int thrash_words,
+                                      float *h_scores, float *h_gold, int dimx,
+                                      int dimy, int groups, int score_nbytes,
+                                      int nreps, cudaStream_t stream,
+                                      size_t *set_aside,
+                                      size_t *window_bytes) {
+  cudaEvent_t start, stop;
+  float total_ms = 0.0f;
+  CUDA_CHECK(cudaEventCreate(&start));
+  CUDA_CHECK(cudaEventCreate(&stop));
+  bool persisting_enabled = false;
+  if (persist_input) {
+    persisting_enabled = set_persisting_l2_window(
+        stream, (void *)d_xw, groups * sizeof(uchar2), set_aside, window_bytes);
+  }
+
+  for (int rep = 0; rep < nreps; ++rep) {
+    if (thrash_before_producer) {
+      launch_l2_thrash(d_thrash, thrash_words, stream);
+    }
+    CUDA_CHECK(cudaEventRecord(start, stream));
+    launch_compact_u8_producer_stream(d_xw, d_out, groups, stream);
+    CUDA_CHECK(cudaEventRecord(stop, stream));
+    CUDA_CHECK(cudaEventSynchronize(stop));
+    CUDA_CHECK(cudaGetLastError());
+    float elapsed = 0.0f;
+    CUDA_CHECK(cudaEventElapsedTime(&elapsed, start, stop));
+    total_ms += elapsed;
+  }
+
+  launch_compact_u8_consumer_stream(d_out, d_scores, groups, stream);
+  CUDA_CHECK(cudaStreamSynchronize(stream));
+  bool correct =
+      verify_l2_scores(d_scores, h_scores, h_gold, dimx, dimy, score_nbytes,
+                       0.001f);
+  if (persisting_enabled) clear_persisting_l2_window(stream);
+  CUDA_CHECK(cudaEventDestroy(start));
+  CUDA_CHECK(cudaEventDestroy(stop));
+
+  L2Timing result;
+  result.ms = total_ms / (float)nreps;
+  result.correct = correct;
+  result.persisting_enabled = persisting_enabled;
+  return result;
+}
+
 static L2Timing benchmark_l2_consumer(bool thrash_before_consumer,
                                       bool use_persisting, const uchar2 *d_xw,
                                       uchar2 *d_out, float *d_scores,
@@ -3493,6 +3542,7 @@ int main() {
   int thrash_words = L2_THRASH_BYTES / (int)sizeof(uint4);
   long long consumer_logical_bytes =
       (long long)compact_u8_nbytes + (long long)score_nbytes;
+  long long producer_logical_bytes = (long long)compact_u8_nbytes * 2LL;
   long long total_logical_bytes =
       (long long)compact_u8_nbytes * 2LL + consumer_logical_bytes;
 
@@ -3534,6 +3584,34 @@ int main() {
   size_t window_bytes = 0;
 
   printf("variant,correct,time_ms,logical_bytes,persisting_l2\n");
+  L2Timing producer_warm = benchmark_l2_producer(
+      false, false, d_xw, d_out, d_scores, d_thrash, thrash_words, h_scores,
+      h_gold, dimx, dimy, groups, score_nbytes, nreps, stream, &set_aside,
+      &window_bytes);
+  print_l2_row("compact_u8_producer_warm_l2_experimental", &producer_warm,
+               producer_logical_bytes);
+
+  L2Timing producer_cold = benchmark_l2_producer(
+      true, false, d_xw, d_out, d_scores, d_thrash, thrash_words, h_scores,
+      h_gold, dimx, dimy, groups, score_nbytes, nreps, stream, &set_aside,
+      &window_bytes);
+  print_l2_row("compact_u8_producer_after_l2_thrash_experimental",
+               &producer_cold, producer_logical_bytes);
+
+  L2Timing producer_persist = benchmark_l2_producer(
+      false, true, d_xw, d_out, d_scores, d_thrash, thrash_words, h_scores,
+      h_gold, dimx, dimy, groups, score_nbytes, nreps, stream, &set_aside,
+      &window_bytes);
+  print_l2_row("compact_u8_producer_persisting_input_experimental",
+               &producer_persist, producer_logical_bytes);
+
+  L2Timing producer_persist_thrash = benchmark_l2_producer(
+      true, true, d_xw, d_out, d_scores, d_thrash, thrash_words, h_scores,
+      h_gold, dimx, dimy, groups, score_nbytes, nreps, stream, &set_aside,
+      &window_bytes);
+  print_l2_row("compact_u8_producer_persisting_input_after_l2_thrash_experimental",
+               &producer_persist_thrash, producer_logical_bytes);
+
   L2Timing warm = benchmark_l2_consumer(
       false, false, d_xw, d_out, d_scores, d_thrash, thrash_words, h_scores,
       h_gold, dimx, dimy, groups, score_nbytes, nreps, stream, &set_aside,

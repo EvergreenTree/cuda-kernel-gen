@@ -23,6 +23,10 @@ KEY_VARIANTS = (
         "compact_u8_xw_affine_u8_xw_output_experimental",
     ),
     (
+        "L2-persisting U8 in/out kernel",
+        "compact_u8_producer_persisting_input_experimental",
+    ),
+    (
         "L2-resident U8 in/out pipeline",
         "compact_u8_producer_consumer_persisting_l2_total_experimental",
     ),
@@ -94,16 +98,59 @@ def variant_rows(summary):
     return rows
 
 
+def l2_variant_rows(l2_cache, baseline):
+    variants = l2_cache.get("variants", {})
+    strict_ms = baseline.get("time_ms")
+    rows = []
+    for label, name in KEY_VARIANTS:
+        stats = variants.get(name)
+        if not stats:
+            continue
+        strict_gain = (
+            strict_ms / stats.get("median_ms")
+            if strict_ms and stats.get("median_ms")
+            else None
+        )
+        rows.append(
+            [
+                label,
+                "yes" if stats.get("correct") else "no",
+                f"{stats.get('median_ms', 0.0):.4f} ms",
+                fmt(strict_gain, 1, "x"),
+                fmt_mib(stats.get("logical_bytes_per_launch")),
+            ]
+        )
+    return rows
+
+
 def l2_summary_rows(l2_cache, baseline):
     variants = l2_cache.get("variants", {})
     total = variants.get("compact_u8_producer_consumer_persisting_l2_total_experimental")
+    producer = variants.get("compact_u8_producer_persisting_input_experimental", {})
+    producer_warm = variants.get("compact_u8_producer_warm_l2_experimental", {})
+    producer_thrashed = variants.get("compact_u8_producer_after_l2_thrash_experimental", {})
     warm = variants.get("consume_u8_after_producer_warm_l2_experimental", {})
     thrashed = variants.get("consume_u8_after_l2_thrash_experimental", {})
     no_persist_total = variants.get("compact_u8_producer_consumer_total_experimental", {})
-    if not total:
+    if not total and not producer:
         return []
 
     strict_ms = baseline.get("time_ms")
+    producer_gain = (
+        producer_warm.get("median_ms") / producer.get("median_ms")
+        if producer_warm.get("median_ms") and producer.get("median_ms")
+        else None
+    )
+    producer_thrash_gain = (
+        producer_thrashed.get("median_ms") / producer.get("median_ms")
+        if producer_thrashed.get("median_ms") and producer.get("median_ms")
+        else None
+    )
+    producer_strict_gain = (
+        strict_ms / producer.get("median_ms")
+        if strict_ms and producer.get("median_ms")
+        else None
+    )
     warm_gain = (
         thrashed.get("median_ms") / warm.get("median_ms")
         if thrashed.get("median_ms") and warm.get("median_ms")
@@ -116,8 +163,12 @@ def l2_summary_rows(l2_cache, baseline):
     )
     strict_gain = strict_ms / total.get("median_ms") if strict_ms and total.get("median_ms") else None
     return [
+        ["Persisting U8 in/out kernel", fmt(producer.get("median_ms"), 4, " ms")],
+        ["Kernel-only speedup vs strict baseline", fmt(producer_strict_gain, 1, "x")],
+        ["Input L2 lift vs warm producer", fmt(producer_gain, 2, "x")],
+        ["Input L2 lift vs thrashed producer", fmt(producer_thrash_gain, 2, "x")],
         ["Persisting producer + consumer", fmt(total.get("median_ms"), 4, " ms")],
-        ["Speedup vs strict baseline", fmt(strict_gain, 1, "x")],
+        ["Pipeline speedup vs strict baseline", fmt(strict_gain, 1, "x")],
         ["Warm consumer vs thrashed consumer", fmt(warm_gain, 1, "x")],
         ["Persisting total lift", fmt(persist_gain, 2, "x")],
         ["Compact output footprint", fmt_mib(l2_cache.get("config", {}).get("compact_output_bytes"))],
@@ -203,7 +254,7 @@ def main():
 
     ncu_status = space.get("ncu", {}).get("status", "missing")
     ncu_command = space.get("ncu", {}).get("command")
-    rows = variant_rows(summary)
+    rows = variant_rows(summary) + l2_variant_rows(l2_cache, baseline)
     notes = recommendation_notes(hardware)
 
     sections = [
@@ -240,10 +291,12 @@ def main():
             else "No L2 residency result was found. Run `make l2-report` for this report directory."
         ),
         "",
-        "This option is the U8 input + U8 output boundary push. It is for "
-        "latency-sensitive customers who can own a custom compact ABI and keep "
-        "producer/consumer stages adjacent. It is not the drop-in library "
-        "default, and it remains memory-path limited rather than compute-bound.",
+        "The kernel-only L2 row combines the current U8 input + U8 output "
+        "winner with persisting L2 on compact input. The adjacent pipeline row "
+        "uses persisting L2 on compact output for the downstream consumer. Both "
+        "are custom-ABI options, remain memory-path limited rather than "
+        "compute-bound, and should be remeasured on B200-class systems where "
+        "HBM3e bandwidth narrows the cache advantage.",
         "",
         table(
             [

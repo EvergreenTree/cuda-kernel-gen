@@ -61,7 +61,9 @@ def parse_output(text):
 def write_csv(path, rows):
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+        writer = csv.DictWriter(
+            f, fieldnames=list(rows[0].keys()), lineterminator="\n"
+        )
         writer.writeheader()
         writer.writerows(rows)
 
@@ -138,6 +140,14 @@ def main():
     persist_thrash = variants.get(
         "consume_u8_after_persisting_l2_thrash_experimental", {}
     )
+    producer_warm = variants.get("compact_u8_producer_warm_l2_experimental", {})
+    producer_cold = variants.get("compact_u8_producer_after_l2_thrash_experimental", {})
+    producer_persist = variants.get(
+        "compact_u8_producer_persisting_input_experimental", {}
+    )
+    producer_persist_thrash = variants.get(
+        "compact_u8_producer_persisting_input_after_l2_thrash_experimental", {}
+    )
     if warm.get("median_ms") and cold.get("median_ms"):
         cold["speedup_of_warm_l2_vs_thrash"] = cold["median_ms"] / warm["median_ms"]
     if persist.get("median_ms") and warm.get("median_ms"):
@@ -145,6 +155,18 @@ def main():
     if persist_thrash.get("median_ms") and cold.get("median_ms"):
         persist_thrash["speedup_vs_thrash_without_persisting"] = (
             cold["median_ms"] / persist_thrash["median_ms"]
+        )
+    if producer_warm.get("median_ms") and producer_cold.get("median_ms"):
+        producer_cold["speedup_of_warm_l2_vs_thrash"] = (
+            producer_cold["median_ms"] / producer_warm["median_ms"]
+        )
+    if producer_persist.get("median_ms") and producer_warm.get("median_ms"):
+        producer_persist["speedup_vs_warm_l2"] = (
+            producer_warm["median_ms"] / producer_persist["median_ms"]
+        )
+    if producer_persist_thrash.get("median_ms") and producer_cold.get("median_ms"):
+        producer_persist_thrash["speedup_vs_thrash_without_persisting"] = (
+            producer_cold["median_ms"] / producer_persist_thrash["median_ms"]
         )
 
     report = {

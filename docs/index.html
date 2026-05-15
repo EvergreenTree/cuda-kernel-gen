@@ -423,8 +423,8 @@ code {
     <div class="hero-grid">
       <div class="stat "><p>Original baseline</p><strong>13.0800 ms</strong><span>Strict problem definition</span></div>
       <div class="stat "><p>Recommended drop-in</p><strong>42.2x</strong><span>0.3099 ms</span></div>
-      <div class="stat "><p>Best compact kernel</p><strong>542.7x</strong><span>ABI-changing</span></div>
-      <div class="stat "><p>Profiler takeaway</p><strong>91.6%</strong><span>memory bandwidth in use</span></div>
+      <div class="stat "><p>Fastest kernel-only</p><strong>577.4x</strong><span>0.0227 ms</span></div>
+      <div class="stat "><p>Adjacent L2 pipeline</p><strong>280.9x</strong><span>0.0466 ms</span></div>
     </div>
   </div>
 </header>
@@ -435,6 +435,7 @@ code {
       <h2>Executive Summary</h2>
       <p>The baseline problem processes a fixed 8192 x 8192 float grid with five dependent transcendental iterations per element and a 1e-3 relative tolerance check.</p>
       <p>The recommended production default is the vectorized float kernel. It keeps the input/output contract intact and moves the runtime from 13.0800 ms to 0.3099 ms on this Blackwell host.</p>
+      <p>The fastest compact row combines the U8 input/U8 output kernel with persisting L2 on the compact input. The adjacent L2 pipeline is slower because it times useful downstream consumer work too; use that row to judge product pipelines, not standalone kernel throughput.</p>
       <p>Nsight shows the optimized path is bandwidth-limited: the GPU is moving data near peak DRAM throughput while arithmetic units still have headroom. That does not mean the architecture is deficient; it means the next gains come primarily from moving fewer bytes, or from running on hardware with more memory bandwidth.</p>
     </div>
     <div class="decision">
@@ -489,13 +490,13 @@ code {
 
             <article class="option-card max">
               <div>
-                <span class="pill">Specialized ABI</span>
-                <h3>Compact U8 input + U8 output</h3>
-                <p>Highest kernel-side throughput if downstream can consume compact two-value output.</p>
+                <span class="pill">Extreme ABI</span>
+                <h3>L2-persisting U8 in/out kernel</h3>
+                <p>Fastest kernel-only result when compact input is reused and fits in persisting L2.</p>
               </div>
               <div class="option-metrics">
-                <strong>542.7x</strong>
-                <span>0.0241 ms</span>
+                <strong>577.4x</strong>
+                <span>0.0227 ms</span>
                 <span>64 MiB data moved</span>
               </div>
             </article>
@@ -504,11 +505,11 @@ code {
               <div>
                 <span class="pill">Extreme ABI</span>
                 <h3>L2-resident U8 in/out pipeline</h3>
-                <p>U8 input, U8 output, and a compact consumer run back-to-back with persisting L2; valuable only when custom ABI ownership is acceptable.</p>
+                <p>U8 input, U8 output, and compact consumer timed together with persisting L2.</p>
               </div>
               <div class="option-metrics">
-                <strong>282.3x</strong>
-                <span>0.0463 ms</span>
+                <strong>280.9x</strong>
+                <span>0.0466 ms</span>
                 <span>160 MiB data moved</span>
               </div>
             </article>
@@ -535,11 +536,22 @@ code {
     <div class="ladder">
             <div class="ladder-row max">
               <div class="ladder-label">
+                <strong>L2-persisting U8 in/out kernel</strong>
+                <span>Extreme ABI</span>
+              </div>
+              <div class="ladder-track">
+                <span style="width: 100.00%"></span>
+              </div>
+              <div class="ladder-value">577.4x</div>
+            </div>
+
+            <div class="ladder-row max">
+              <div class="ladder-label">
                 <strong>Compact U8 input + U8 output</strong>
                 <span>Specialized ABI</span>
               </div>
               <div class="ladder-track">
-                <span style="width: 100.00%"></span>
+                <span style="width: 94.00%"></span>
               </div>
               <div class="ladder-value">542.7x</div>
             </div>
@@ -550,9 +562,9 @@ code {
                 <span>Extreme ABI</span>
               </div>
               <div class="ladder-track">
-                <span style="width: 52.02%"></span>
+                <span style="width: 48.64%"></span>
               </div>
-              <div class="ladder-value">282.3x</div>
+              <div class="ladder-value">280.9x</div>
             </div>
 
             <div class="ladder-row option">
@@ -561,7 +573,7 @@ code {
                 <span>Input/output ABI</span>
               </div>
               <div class="ladder-track">
-                <span style="width: 23.04%"></span>
+                <span style="width: 21.66%"></span>
               </div>
               <div class="ladder-value">125.0x</div>
             </div>
@@ -572,7 +584,7 @@ code {
                 <span>Input/output ABI</span>
               </div>
               <div class="ladder-track">
-                <span style="width: 19.47%"></span>
+                <span style="width: 18.30%"></span>
               </div>
               <div class="ladder-value">105.7x</div>
             </div>
@@ -583,7 +595,7 @@ code {
                 <span>Input/output ABI</span>
               </div>
               <div class="ladder-track">
-                <span style="width: 14.28%"></span>
+                <span style="width: 13.42%"></span>
               </div>
               <div class="ladder-value">77.5x</div>
             </div>
@@ -594,7 +606,7 @@ code {
                 <span>Output ABI</span>
               </div>
               <div class="ladder-track">
-                <span style="width: 9.37%"></span>
+                <span style="width: 8.81%"></span>
               </div>
               <div class="ladder-value">50.9x</div>
             </div>
@@ -605,7 +617,7 @@ code {
                 <span>Pipeline</span>
               </div>
               <div class="ladder-track">
-                <span style="width: 8.40%"></span>
+                <span style="width: 7.90%"></span>
               </div>
               <div class="ladder-value">45.6x</div>
             </div>
@@ -616,7 +628,7 @@ code {
                 <span>Drop-in-specialized</span>
               </div>
               <div class="ladder-track">
-                <span style="width: 7.79%"></span>
+                <span style="width: 7.32%"></span>
               </div>
               <div class="ladder-value">42.3x</div>
             </div>
@@ -627,20 +639,9 @@ code {
                 <span>Drop-in</span>
               </div>
               <div class="ladder-track">
-                <span style="width: 7.78%"></span>
+                <span style="width: 7.31%"></span>
               </div>
               <div class="ladder-value">42.2x</div>
-            </div>
-
-            <div class="ladder-row neutral">
-              <div class="ladder-label">
-                <strong>Scalar coalesced kernel</strong>
-                <span>Structural fix</span>
-              </div>
-              <div class="ladder-track">
-                <span style="width: 4.73%"></span>
-              </div>
-              <div class="ladder-value">25.7x</div>
             </div>
             </div>
   </section>
@@ -698,15 +699,20 @@ code {
     <p class="muted">Sorted by speedup vs the original client baseline. Footprint combines data moved, register pressure, and spill status so the table stays decision-oriented.</p>
     <div class="table-wrap portfolio"><table><thead><tr><th>Variant</th><th>Track</th><th>Status</th><th>Speedup</th><th>Time</th><th>Footprint</th></tr></thead><tbody><tr><td data-label="Variant">
                 <div class="variant-name">
+                  <strong>L2-persisting U8 in/out kernel</strong>
+                  <span>Fastest kernel-only result when compact input is reused and fits in persisting L2.</span>
+                </div>
+                </td><td data-label="Track"><span class="track max">Extreme ABI</span></td><td data-label="Status">Pass</td><td data-label="Speedup">577.4x</td><td data-label="Time">0.0227 ms</td><td data-label="Footprint"><div class="chips"><span>64 MiB data moved</span></div></td></tr><tr><td data-label="Variant">
+                <div class="variant-name">
                   <strong>Compact U8 input + U8 output</strong>
-                  <span>Highest kernel-side throughput if downstream can consume compact two-value output.</span>
+                  <span>Fastest kernel-only result; does not include a downstream consumer.</span>
                 </div>
                 </td><td data-label="Track"><span class="track max">Specialized ABI</span></td><td data-label="Status">Pass</td><td data-label="Speedup">542.7x</td><td data-label="Time">0.0241 ms</td><td data-label="Footprint"><div class="chips"><span>64 MiB data moved</span><span>16 registers/thread</span><span>0 spill bytes</span></div></td></tr><tr><td data-label="Variant">
                 <div class="variant-name">
                   <strong>L2-resident U8 in/out pipeline</strong>
-                  <span>U8 input, U8 output, and a compact consumer run back-to-back with persisting L2; valuable only when custom ABI ownership is acceptable.</span>
+                  <span>U8 input, U8 output, and compact consumer timed together with persisting L2.</span>
                 </div>
-                </td><td data-label="Track"><span class="track max">Extreme ABI</span></td><td data-label="Status">Pass</td><td data-label="Speedup">282.3x</td><td data-label="Time">0.0463 ms</td><td data-label="Footprint"><div class="chips"><span>160 MiB data moved</span></div></td></tr><tr><td data-label="Variant">
+                </td><td data-label="Track"><span class="track max">Extreme ABI</span></td><td data-label="Status">Pass</td><td data-label="Speedup">280.9x</td><td data-label="Time">0.0466 ms</td><td data-label="Footprint"><div class="chips"><span>160 MiB data moved</span></div></td></tr><tr><td data-label="Variant">
                 <div class="variant-name">
                   <strong>Compact U8 input + FP16 output</strong>
                   <span>Best when an upstream producer can emit only the two changing values directly.</span>
@@ -760,39 +766,58 @@ code {
     <div class="l2-copy">
       <h3>When a custom ABI is worth considering</h3>
       <p>This path is aimed at latency-sensitive customers who can own the compact data contract, producer/consumer coupling, and maintenance burden. It is not the safe library default.</p>
-      <p class="muted">This is the U8 input + U8 output boundary push: the compact producer writes U8 x/w output, then the compact consumer reads it directly. On this Blackwell host, that compact output is 32 MiB and fits inside the configured persisting-L2 window. Keeping the stages adjacent cuts the measured producer-plus-consumer total to 0.0463 ms, or 282.3x against the original client baseline.</p>
+      <p class="muted">There are two useful combinations. First, the current best kernel-only shape can keep its compact U8 input in persisting L2; that measured 0.0227 ms, or 577.4x against the original client baseline. Second, the compact producer can write U8 x/w output and keep that output resident for an adjacent compact consumer; that producer-plus-consumer path measured 0.0466 ms, or 280.9x.</p>
+      <p class="muted">The kernel-only L2 result is the fastest measured row on this host, but it depends on compact input reuse and a working set that fits the persisting-L2 budget. On B200-class systems, very high HBM3e bandwidth narrows the cache advantage, so this tactic should be remeasured rather than assumed.</p>
       <p class="muted">The L2 path does not make the workload compute-bound. It reduces read pressure, but the compact consumer still shows a memory-path profile because it writes the score stream and moves predictable global-memory transactions.</p>
     </div>
-    <div class="fact-grid"><div class="fact"><span>Compact output footprint</span><strong>32 MiB</strong></div><div class="fact"><span>Measured L2 cache</span><strong>128 MiB</strong></div><div class="fact"><span>Persisting-L2 budget</span><strong>80 MiB</strong></div><div class="fact"><span>Warm vs cold consumer</span><strong>2.7x</strong></div><div class="fact"><span>Persisting total lift</span><strong>1.2x</strong></div><div class="fact"><span>Custom ABI fit</span><strong>HFT / ultra-low latency</strong></div></div>
+    <div class="fact-grid"><div class="fact"><span>Compact output footprint</span><strong>32 MiB</strong></div><div class="fact"><span>Measured L2 cache</span><strong>128 MiB</strong></div><div class="fact"><span>Persisting-L2 budget</span><strong>80 MiB</strong></div><div class="fact"><span>Kernel-only L2 result</span><strong>0.0227 ms</strong></div><div class="fact"><span>Input L2 lift</span><strong>1.6x</strong></div><div class="fact"><span>Input L2 vs thrash</span><strong>3.1x</strong></div><div class="fact"><span>Warm vs cold consumer</span><strong>2.8x</strong></div><div class="fact"><span>Persisting total lift</span><strong>1.2x</strong></div></div>
     <h3 class="section-subhead">Measured latency path</h3>
     <div class="l2-bars">
             <div class="l2-bar">
+              <div><strong>Producer after L2 thrash</strong><span>Current best kernel shape after cache pressure</span></div>
+              <div class="l2-track"><i style="width: 92.68%"></i></div>
+              <b>0.0704 ms</b>
+            </div>
+
+            <div class="l2-bar">
+              <div><strong>Producer warm</strong><span>Current best kernel shape with natural reuse</span></div>
+              <div class="l2-track"><i style="width: 49.19%"></i></div>
+              <b>0.0373 ms</b>
+            </div>
+
+            <div class="l2-bar">
+              <div><strong>Producer with persisting input</strong><span>Current best kernel shape plus L2 input residency</span></div>
+              <div class="l2-track"><i style="width: 29.84%"></i></div>
+              <b>0.0227 ms</b>
+            </div>
+
+            <div class="l2-bar">
               <div><strong>Thrashed consumer</strong><span>Cold path after a 256 MiB L2-thrashing pass</span></div>
               <div class="l2-track"><i style="width: 100.00%"></i></div>
-              <b>0.0710 ms</b>
+              <b>0.0759 ms</b>
             </div>
 
             <div class="l2-bar">
               <div><strong>Warm consumer</strong><span>Producer output is still resident</span></div>
-              <div class="l2-track"><i style="width: 37.32%"></i></div>
-              <b>0.0265 ms</b>
+              <div class="l2-track"><i style="width: 35.40%"></i></div>
+              <b>0.0269 ms</b>
             </div>
 
             <div class="l2-bar">
               <div><strong>Persisting consumer</strong><span>CUDA persisting-L2 window applied</span></div>
-              <div class="l2-track"><i style="width: 32.75%"></i></div>
-              <b>0.0233 ms</b>
+              <div class="l2-track"><i style="width: 30.83%"></i></div>
+              <b>0.0234 ms</b>
             </div>
 
             <div class="l2-bar">
               <div><strong>Persisting total</strong><span>Producer plus compact consumer</span></div>
-              <div class="l2-track"><i style="width: 65.24%"></i></div>
-              <b>0.0463 ms</b>
+              <div class="l2-track"><i style="width: 61.34%"></i></div>
+              <b>0.0466 ms</b>
             </div>
             </div>
     <h3 class="section-subhead">Cache residency planning model</h3>
     <p class="muted">Planning estimate only: assume about 70% of advertised cache is usable for resident working data, then verify on the target SKU. Aggregate cache helps only when the workload is partitioned so each GPU or die keeps its shard local.</p>
-    <div class="table-wrap compact-plan"><table><thead><tr><th>GPU family</th><th>Usable cache estimate</th><th>256 MiB working set</th><th>512 MiB working set</th><th>Readout</th></tr></thead><tbody><tr><td data-label="GPU family">H100 / H200</td><td data-label="Usable cache estimate">~35 MiB</td><td data-label="256 MiB working set">8 GPUs</td><td data-label="512 MiB working set">15+ GPUs</td><td data-label="Readout">L2 density is too small for this tactic at practical scale.</td></tr><tr><td data-label="GPU family">RTX 6000 Ada / RTX 5090</td><td data-label="Usable cache estimate">~67 MiB</td><td data-label="256 MiB working set">4 GPUs</td><td data-label="512 MiB working set">8 GPUs</td><td data-label="Readout">Good single-die cache, but still needs sharding for larger working sets.</td></tr><tr><td data-label="GPU family">RTX Pro 6000 Blackwell</td><td data-label="Usable cache estimate">~90 MiB</td><td data-label="256 MiB working set">3 GPUs</td><td data-label="512 MiB working set">6 GPUs</td><td data-label="Readout">Best fit among workstation-class NVIDIA parts in this planning model.</td></tr><tr><td data-label="GPU family">B200</td><td data-label="Usable cache estimate">~180 MiB logical</td><td data-label="256 MiB working set">2 GPUs</td><td data-label="512 MiB working set">3 GPUs</td><td data-label="Readout">Dual-die cache can work if the workload respects die locality.</td></tr><tr><td data-label="GPU family">B300</td><td data-label="Usable cache estimate">~135 MiB</td><td data-label="256 MiB working set">2 GPUs</td><td data-label="512 MiB working set">4 GPUs</td><td data-label="Readout">Comfortable for 256 MiB; larger sets still need sharding.</td></tr></tbody></table></div>
+    <div class="table-wrap compact-plan"><table><thead><tr><th>GPU family</th><th>Usable cache estimate</th><th>256 MiB working set</th><th>512 MiB working set</th><th>Readout</th></tr></thead><tbody><tr><td data-label="GPU family">H100 / H200</td><td data-label="Usable cache estimate">~35 MiB</td><td data-label="256 MiB working set">8 GPUs</td><td data-label="512 MiB working set">15+ GPUs</td><td data-label="Readout">L2 density is too small for this tactic at practical scale.</td></tr><tr><td data-label="GPU family">RTX 6000 Ada / RTX 5090</td><td data-label="Usable cache estimate">~67 MiB</td><td data-label="256 MiB working set">4 GPUs</td><td data-label="512 MiB working set">8 GPUs</td><td data-label="Readout">Good single-die cache, but still needs sharding for larger working sets.</td></tr><tr><td data-label="GPU family">RTX Pro 6000 Blackwell</td><td data-label="Usable cache estimate">~90 MiB</td><td data-label="256 MiB working set">3 GPUs</td><td data-label="512 MiB working set">6 GPUs</td><td data-label="Readout">Best fit among workstation-class NVIDIA parts in this planning model.</td></tr><tr><td data-label="GPU family">B200</td><td data-label="Usable cache estimate">~180 MiB logical</td><td data-label="256 MiB working set">2 GPUs</td><td data-label="512 MiB working set">3 GPUs</td><td data-label="Readout">High HBM3e bandwidth narrows the cache advantage; use L2 mainly for reuse and latency.</td></tr><tr><td data-label="GPU family">B300</td><td data-label="Usable cache estimate">~135 MiB</td><td data-label="256 MiB working set">2 GPUs</td><td data-label="512 MiB working set">4 GPUs</td><td data-label="Readout">Comfortable for 256 MiB; verify L2 upside because HBM is already very fast.</td></tr></tbody></table></div>
   </section>
 
 

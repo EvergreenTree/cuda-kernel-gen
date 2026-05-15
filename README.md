@@ -274,7 +274,8 @@ probes, not acceptable winners.
 | Compact U16 `x/w` input + FP16 output | compact ushort2 in, half out | yes | 0.124 ms | 106.5x |
 | Compact U8 `x/w` input + FP16 output | compact uchar2 in, half out | yes | 0.105 ms | 125.8x |
 | Compact U8 `x/w` input + U8 `x/w` output | custom compact in/out | yes | 0.025 ms | 528.4x |
-| Compact U8 input + U8 output + compact consumer with persisting L2 | custom compact in/out + adjacent consumer | yes | 0.046 ms | 285.4x |
+| Compact U8 input + U8 output with persisting input L2 | custom compact in/out, reused compact input | yes | 0.023 ms | 583.1x |
+| Compact U8 input + U8 output + compact consumer with persisting L2 | custom compact in/out + adjacent consumer | yes | 0.047 ms | 283.6x |
 | Decode compact U8 output to float | custom U8 in, float out | yes | 0.197 ms | 67.1x |
 | Downstream projection from float output | float4 in, score out | yes | 0.213 ms | 62.0x |
 | Downstream projection from compact U8 output | custom U8 in, score out | yes | 0.027 ms | 489.3x |
@@ -294,14 +295,13 @@ the Experiment Ledger below; this section is intentionally just the scoreboard.
 ### L2 Residency Result And Sizing Model
 
 The measured L2 result is an extreme-performance option, not the recommended
-default. It is the U8 input + U8 output boundary push: the compact producer
-writes U8 `x/w` output, then the compact consumer reads that output directly.
-On the local RTX PRO 6000 Blackwell host, the compact U8 output is `32 MiB`,
-the device reports `128 MiB` L2, CUDA exposes an `80 MiB` persisting L2 budget,
-and the compact producer-plus-consumer path improves from `0.0543 ms` to
-`0.0463 ms` when the compact output is marked for persisting L2. The compact
-consumer alone runs in `0.0264 ms` when the producer output is warm and
-`0.0711 ms` after an L2-thrashing pass.
+default. There are two useful combinations with the current U8 input + U8 output
+winner. If the compact input is reused and fits in the persisting-L2 budget, the
+kernel-only path improves to `0.0227 ms` on this host. If the compact producer
+writes U8 `x/w` output for an adjacent compact consumer, marking that output for
+persisting L2 moves the producer-plus-consumer path from `0.0547 ms` to
+`0.0466 ms`. The compact consumer alone runs in `0.0269 ms` when the producer
+output is warm and `0.0758 ms` after an L2-thrashing pass.
 
 This is valuable for some customers seeking extreme latency, including HFT-like
 pipelines, but it is a trade-off: the product has to own a custom compact ABI,
@@ -310,7 +310,10 @@ work. For larger working sets, cache residency only helps when work is
 partitioned so each GPU or die keeps its shard local; gathering over PCIe can
 erase the benefit. Nsight still reads this path as memory-path limited rather
 than compute-bound: L2 residency helps the read side, but the score stream still
-has to be written and the kernels still move global-memory transactions.
+has to be written and the kernels still move global-memory transactions. On
+B200-class systems, very high HBM3e bandwidth narrows the L2 advantage, so cache
+residency should be treated as a target-machine measurement rather than a
+portable assumption.
 
 Planning assumptions below use about `70%` of advertised cache as usable for
 resident working data. Verify the exact SKU and workload with `make l2-report`
@@ -333,8 +336,8 @@ across local shards:
 | GPU | GPUs needed | Aggregate usable cache | Notes |
 | --- | ---: | ---: | --- |
 | RTX Pro 6000 | 6 | ~540 MB | 5 is tight under the usable-cache model; 6 gives headroom. |
-| B200 | 3 | ~540 MB | 3 dual-die GPUs provide 6 L2 banks. |
-| B300 | 4 | ~540 MB | Comfortable margin. |
+| B200 | 3 | ~540 MB | 3 dual-die GPUs provide 6 L2 banks; HBM3e bandwidth may reduce the cache upside. |
+| B300 | 4 | ~540 MB | Comfortable margin; remeasure because HBM is already very fast. |
 | H100 / H200 | 15+ | ~525 MB | Impractical; L2 is too small per card. |
 
 For a `256 MiB` working set, such as a 16-bit output path:
@@ -342,8 +345,8 @@ For a `256 MiB` working set, such as a 16-bit output path:
 | GPU | GPUs needed | Aggregate usable cache | Notes |
 | --- | ---: | ---: | --- |
 | RTX Pro 6000 | 3 | ~270 MB | Partition into about 85 MB per GPU. |
-| B200 | 2 | ~360 MB | Comfortable on 4 dies. |
-| B300 | 2 | ~270 MB | Tight but workable. |
+| B200 | 2 | ~360 MB | Comfortable on 4 dies; use L2 mainly for reuse-sensitive paths. |
+| B300 | 2 | ~270 MB | Tight but workable; verify L2 benefit on target hardware. |
 | H100 / H200 | 8 | ~280 MB | Impractical scale. |
 
 ## Experiment Ledger
@@ -376,7 +379,7 @@ and the practical takeaway.
 | GPU packing plus custom U8 output can win end-to-end | `0.2500 ms` median over 3 full-size runs from original AoS input | Reuses the measured U8 pack and custom U8-output consumer; logical traffic drops to `320 MiB` for pack input/write plus compact output path | First setup-paid compact win, but it requires the strongest ABI specialization: U8 x/w input, U8 x/w output, and implicit y/z constants |
 | Decoding custom U8 output back to float can erase the win | Decode-only `0.1972 ms`; pack plus custom U8 output plus float decode `0.4356 ms` median over 3 full-size runs | Nsight on decode reports `177.344 us`, `82.98%` DRAM throughput, `34 MB` reads, `199 MB` writes, `1,048,576` L1 load sectors, and `8,388,608` L1 store sectors | Custom output is only attractive if downstream consumes compact form or decode is fused with useful work |
 | A realistic compact downstream consumer can preserve the custom-output win | Float-output projection `0.2125 ms`; compact-U8 projection `0.0274 ms`; full float pipeline plus projection `0.5789 ms`; setup-paid compact pipeline plus projection `0.2866 ms` | Nsight reports the float consumer at `211.168 us`, `92.61%` DRAM throughput, `268 MB` reads, and `8,388,608` L1 load sectors; compact consumer at `36.640 us`, `80.3%` DRAM throughput, `34 MB` reads, and `1,048,576` L1 load sectors | Custom U8 output is viable only when the next stage consumes compact x/w directly; this is the current best measured end-to-end specialized path |
-| Compact U8 output can benefit from L2 residency | Consumer after producer `0.0264 ms`; same consumer after a `256 MiB` L2-thrashing pass `0.0711 ms`; persisting-L2 producer+consumer total `0.0463 ms` versus `0.0543 ms` without it | Blackwell reports `128 MiB` L2 and `80 MiB` persisting set-aside; compact output is `32 MiB`, so the output fits in the persisting window | Real lever for compact producer-consumer pipelines and HFT-like latency work, but only when custom ABI ownership and maintenance cost are acceptable |
+| Compact U8 input/output can benefit from L2 residency | Kernel-only producer with persisting compact input `0.0227 ms`; producer after a `256 MiB` L2-thrashing pass `0.0704 ms`; consumer after producer `0.0269 ms`; persisting-L2 producer+consumer total `0.0466 ms` versus `0.0547 ms` without it | Blackwell reports `128 MiB` L2 and `80 MiB` persisting set-aside; compact input/output are each `32 MiB`, so either side fits in the persisting window | Real lever for compact producer-consumer pipelines and HFT-like latency work, but only when custom ABI ownership, data reuse, and maintenance cost are acceptable; remeasure on B200-class HBM3e systems |
 | BF16 output might be cheaper enough while staying inside tolerance | `0.2570 ms`, expected failure; first checked element had `rdiff 0.001955` | BF16 has the same output byte count as FP16 here but too few mantissa bits for the benchmark tolerance | Do not use BF16 unless the tolerance relaxes or output error is judged differently downstream |
 | SASS should confirm what `tan` actually costs | Default vector SASS contains `MUFU.SIN`, `MUFU.COS`, and `MUFU.RCP` in the tangent lane | `__tanf` lowers to sin/cos/reciprocal-like work, so explicit `sincos` sharing is not free across independent lanes | Worth revisiting only if the iterative scalar path becomes the target again |
 | CUDA Graph replay can amortize launch overhead | On `64 x 64`, stream H2D+kernel replay measured `0.014572 ms`; graph replay measured `0.013954 ms` | Graph replay trims host submission overhead, but the tested end-to-end replay still includes the H2D copy and tiny kernel work | Useful only for many small launches; it is not a lever for the full-size event-timed kernel |
@@ -518,6 +521,8 @@ architecture.
   https://docs.nvidia.com/launchpad/ai/h100-mig/latest/h100-mig-gpu.html
 - NVIDIA RTX Blackwell GPU architecture brief, RTX PRO 6000 Blackwell L2 table:
   https://www.nvidia.com/content/dam/en-zz/Solutions/design-visualization/quadro-product-literature/NVIDIA-RTX-Blackwell-PRO-GPU-Architecture-v1.0.pdf
+- NVIDIA HGX AI Factory components, B200/B300 HBM3e bandwidth table:
+  https://docs.nvidia.com/enterprise-reference-architectures/hgx-ai-factory/latest/components.html
 - CUDA Programming Guide, mathematical functions and fast math:
   https://docs.nvidia.com/cuda/archive/13.1.1/cuda-programming-guide/05-appendices/mathematical-functions.html
 - CUDA Blackwell Compatibility Guide:

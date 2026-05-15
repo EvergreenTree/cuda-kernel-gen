@@ -44,9 +44,9 @@ defend.
   topology, and per-GPU row ranges. PCIe/PHB hosts are still useful when data is
   already partitioned or capacity/throughput matters more than a single gathered
   result.
-- [ ] Keep compact-layout experiments pipeline-oriented. The repo already times
+- [x] Keep compact-layout experiments pipeline-oriented. The repo times
   GPU packing, compact U8 input/output, float decode, and compact downstream
-  consumption; the next reporting step is to preserve those measurements as the
+  consumption, and `make pipeline-report` preserves those measurements as the
   default evidence for whether compact storage is an end-to-end win.
 - [x] Add precision/error-distribution reporting for ABI-changing outputs. FP16,
   BF16, U8, and U4 paths should show max/mean/RMS relative error plus tolerance
@@ -186,6 +186,15 @@ Builds and runs the optional compact-input setup test. This measures both the
 upper-bound compact `x/w` consumers and the end-to-end GPU pack plus compact
 consumer paths, including a compact downstream projection that avoids decoding
 the full output grid back to floats.
+
+```bash
+make pipeline-report
+```
+
+Runs the layout/setup benchmark path and writes `pipeline_summary.csv`,
+`pipeline_summary.json`, and `pipeline_summary.md` under `REPORT_DIR`. This is
+the compact-layout decision view: pack cost, compact U8 output, float decode,
+float-output consumer, and compact-output consumer in one small artifact set.
 
 ```bash
 make graph-experiment
@@ -349,6 +358,9 @@ directories:
   multi-gpu-report`.
 - `error_stats.json` / `error_stats.csv`: precision distributions for
   ABI-changing output and compact-storage variants from `make error-report`.
+- `pipeline_summary.json` / `pipeline_summary.csv` / `pipeline_summary.md`:
+  compact-layout setup, decode, and downstream-consumer comparisons from `make
+  pipeline-report`.
 
 ## Glossary
 

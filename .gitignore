@@ -16,6 +16,11 @@
 *.qdrep
 profile/
 reports/
+!reports/
+reports/*
+!reports/client-b300-fused-score/
+reports/client-b300-fused-score/*
+!reports/client-b300-fused-score/index.html
 
 # Local scratch
 build/

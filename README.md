@@ -2,6 +2,7 @@
 
 [🌐 Published report](https://evergreentree.github.io/cuda-kernel-gen/) ·
 [🧾 Local HTML report](docs/index.html) ·
+[🧪 B300 run HTML artifact](reports/client-b300-fused-score/index.html) ·
 [📄 PDF report](docs/cuda-kernel-performance-report.pdf) ·
 [📝 Markdown summary](docs/artifacts/client_summary.md)
 

@@ -4,6 +4,7 @@
 import argparse
 import html
 import json
+import os
 import shutil
 from pathlib import Path
 
@@ -941,6 +942,37 @@ def hardware_summary(summary, hardware):
     ]
 
 
+def rel_href(target, base_dir):
+    return os.path.relpath(target, start=base_dir).replace(os.sep, "/")
+
+
+def source_package_rows(base_dir):
+    links = [
+        (
+            "README",
+            ROOT / "README.md",
+            "Project overview, hardware scoreboards, and experiment ledger.",
+        ),
+        (
+            "CUDA source",
+            ROOT / "src" / "cuda_prog.cu",
+            "Optimized kernel, affine/compact variants, and L2 experiment harness.",
+        ),
+        (
+            "Report renderer",
+            ROOT / "tools" / "render_report.py",
+            "HTML report generator used for this PDF and published page.",
+        ),
+    ]
+    return [
+        [
+            f'<a href="{esc(rel_href(path, base_dir))}">{esc(label)}</a>',
+            esc(description),
+        ]
+        for label, path, description in links
+    ]
+
+
 def multi_gpu_story(hardware):
     smi = hardware.get("nvidia_smi", {})
     topology = hardware.get("topology", {})
@@ -967,7 +999,8 @@ def multi_gpu_story(hardware):
     return title, body, scaling
 
 
-def build_html(output_dir):
+def build_html(output_dir, link_base_dir=None):
+    link_base_dir = link_base_dir or output_dir
     summary = read_json(output_dir / "summary.json", {})
     space = read_json(output_dir / "space.json", {})
     hardware = read_json(output_dir / "hardware.json", {})
@@ -1435,6 +1468,165 @@ code {{
   .ladder-value, .mini-row strong, .l2-bar b {{ text-align: left; }}
   table {{ min-width: 760px; }}
 }}
+@media print {{
+  @page {{ size: Letter; margin: 0.42in; }}
+  :root {{
+    --bg: #ffffff;
+    --ink: #132027;
+    --muted: #536168;
+    --surface: #ffffff;
+    --line: #d7e1dc;
+    --nvidia: #5f9f00;
+    --nvidia-dark: #264800;
+    --cyan: #007f94;
+    --gold: #9f6b00;
+    --soft: #eef5eb;
+  }}
+  html, body {{ background: #ffffff; }}
+  body {{
+    color: var(--ink);
+    font-size: 9.6pt;
+    line-height: 1.38;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }}
+  .wrap {{
+    max-width: none;
+    padding: 0;
+  }}
+  .hero {{
+    background:
+      linear-gradient(135deg, #f7fbf5 0%, #ffffff 58%, #eef6ef 100%);
+    border: 1px solid #dce7df;
+    border-left: 6px solid var(--nvidia);
+    border-radius: 8px;
+    color: var(--ink);
+    margin-bottom: 12pt;
+    padding: 18pt 20pt 16pt;
+  }}
+  .eyebrow {{ color: var(--nvidia-dark); font-size: 8pt; }}
+  h1 {{
+    font-size: 28pt;
+    line-height: 1.02;
+    max-width: 7.2in;
+  }}
+  .lede {{
+    color: #435158;
+    font-size: 10.5pt;
+    margin-top: 9pt;
+    max-width: 7in;
+  }}
+  .hero-grid {{
+    gap: 8pt;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin-top: 14pt;
+  }}
+  .stat, .hero .stat {{
+    background: #ffffff;
+    border-color: #d7e1dc;
+    box-shadow: none;
+    color: var(--ink);
+    padding: 9pt 10pt;
+  }}
+  .stat p {{ font-size: 7.4pt; opacity: 0.82; }}
+  .stat strong {{ font-size: 16pt; margin: 4pt 0 1pt; }}
+  .stat span {{ font-size: 8pt; opacity: 0.75; }}
+  main.wrap {{ padding-bottom: 0; }}
+  section {{
+    background: #ffffff;
+    border-color: #d9e3de;
+    box-shadow: none;
+    margin-top: 11pt;
+    padding: 13pt 14pt;
+  }}
+  h2 {{
+    break-after: avoid;
+    font-size: 15pt;
+    margin-bottom: 7pt;
+  }}
+  h3 {{
+    break-after: avoid;
+    font-size: 10.2pt;
+  }}
+  p {{ margin-bottom: 7pt; }}
+  .decision {{
+    background: #f8fbf6;
+    border-left-color: var(--nvidia);
+    padding: 9pt 10pt;
+  }}
+  .intro, .mini-grid, .two-col {{
+    gap: 10pt;
+    grid-template-columns: 1fr 1fr;
+  }}
+  .option-grid {{
+    gap: 8pt;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }}
+  .option-card {{
+    break-inside: avoid;
+    min-height: 0;
+    padding: 10pt;
+  }}
+  .option-card h3 {{ margin-top: 6pt; }}
+  .option-card p {{ font-size: 8.2pt; }}
+  .option-metrics strong {{ font-size: 14pt; }}
+  .pill, .track {{
+    border-radius: 999px;
+    font-size: 6.8pt;
+    padding: 2pt 5pt;
+  }}
+  .ladder, .l2-bars {{ gap: 7pt; }}
+  .ladder-row, .mini-row, .l2-bar {{
+    break-inside: avoid;
+    gap: 7pt;
+  }}
+  .ladder-track {{ height: 9pt; }}
+  .mini-track {{ height: 7pt; }}
+  .l2-track {{ height: 8pt; }}
+  .profiler-grid, .fact-grid {{
+    gap: 7pt;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }}
+  .l2-section .fact-grid {{ grid-template-columns: repeat(3, minmax(0, 1fr)); }}
+  .metric-card, .fact {{
+    break-inside: avoid;
+    background: #fbfdf9;
+    padding: 8pt;
+  }}
+  .metric-card p, .fact span {{ font-size: 6.9pt; }}
+  .metric-card strong {{ font-size: 13pt; }}
+  .fact strong {{ font-size: 9pt; }}
+  .table-wrap {{
+    overflow: visible;
+    break-inside: auto;
+  }}
+  table {{
+    font-size: 7.4pt;
+    min-width: 0;
+    page-break-inside: auto;
+  }}
+  thead {{ display: table-header-group; }}
+  tr {{ break-inside: avoid; page-break-inside: avoid; }}
+  th, td {{
+    padding: 5pt 5pt;
+  }}
+  th {{ font-size: 6.7pt; }}
+  td {{ font-size: 7.4pt; }}
+  .variant-name span {{ font-size: 7pt; max-width: 260pt; }}
+  .chips {{ gap: 3pt; }}
+  .chips span {{ font-size: 6.7pt; padding: 2pt 5pt; }}
+  a {{ color: #005f73; text-decoration: none; }}
+  code {{ background: #eef3f1; }}
+  section:nth-of-type(2),
+  section:nth-of-type(3),
+  section:nth-of-type(4),
+  section:nth-of-type(5),
+  .l2-section,
+  section:nth-of-type(7),
+  section:nth-of-type(8) {{
+    break-before: page;
+  }}
+}}
 </style>
 </head>
 <body>
@@ -1537,6 +1729,12 @@ code {{
     <h2>Run Context</h2>
     {render_table(["Item", "Value"], hardware_summary(summary, hardware))}
   </section>
+
+  <section>
+    <h2>Source Package Links</h2>
+    <p class="muted">These relative links are intended for the source bundle sent to the client, so the report, README, and implementation stay connected when reviewed offline.</p>
+    {render_table(["Source", "Purpose"], source_package_rows(link_base_dir))}
+  </section>
 </main>
 </body>
 </html>
@@ -1571,7 +1769,10 @@ def copy_artifacts(output_dir, publish_dir):
 
 def write_report(output_dir, publish_dir=None):
     output_dir.mkdir(parents=True, exist_ok=True)
-    html_doc = "\n".join(line.rstrip() for line in build_html(output_dir).splitlines()) + "\n"
+    html_doc = (
+        "\n".join(line.rstrip() for line in build_html(output_dir, output_dir).splitlines())
+        + "\n"
+    )
     report_path = output_dir / "index.html"
     report_path.write_text(html_doc)
     print(f"Wrote {report_path}")
@@ -1580,7 +1781,14 @@ def write_report(output_dir, publish_dir=None):
         publish_dir.mkdir(parents=True, exist_ok=True)
         copy_artifacts(output_dir, publish_dir)
         publish_path = publish_dir / "index.html"
-        publish_path.write_text(html_doc)
+        publish_html_doc = (
+            "\n".join(
+                line.rstrip()
+                for line in build_html(output_dir, publish_dir).splitlines()
+            )
+            + "\n"
+        )
+        publish_path.write_text(publish_html_doc)
         print(f"Wrote {publish_path}")
 
 

@@ -112,9 +112,9 @@ VARIANT_COPY = {
         "tone": "max",
     },
     "compact_u8_producer_consumer_persisting_l2_total_experimental": {
-        "label": "L2-resident compact pipeline",
+        "label": "L2-resident U8 in/out pipeline",
         "track": "Extreme ABI",
-        "fit": "Producer and compact consumer run back-to-back with persisting L2; valuable only when custom ABI ownership is acceptable.",
+        "fit": "U8 input, U8 output, and a compact consumer run back-to-back with persisting L2; valuable only when custom ABI ownership is acceptable.",
         "tone": "max",
     },
     "vector4_affine_loaded_float_consumer_pipeline_experimental": {
@@ -172,13 +172,6 @@ CACHE_PLANNING_ROWS = (
         "2 GPUs",
         "4 GPUs",
         "Comfortable for 256 MiB; larger sets still need sharding.",
-    ),
-    (
-        "MI300X / MI325X",
-        "~180 MiB",
-        "2 GPUs",
-        "3 GPUs",
-        "Infinity Cache gives similar density to the B200 planning case.",
     ),
 )
 
@@ -590,26 +583,24 @@ def l2_residency_section(l2_cache, strict_ms):
     ]
 
     return f"""
-  <section>
+  <section class="l2-section">
     <h2>Extreme L2-Resident Path</h2>
-    <div class="two-col">
-      <div>
-        <h3>When a custom ABI is worth considering</h3>
-        <p>This path is aimed at latency-sensitive customers who can own the compact data contract, producer/consumer coupling, and maintenance burden. It is not the safe library default.</p>
-        <p class="muted">On this Blackwell host, the compact output is {fmt_mib(config.get('compact_output_bytes'))} and fits inside the configured persisting-L2 window. Keeping the compact producer and consumer adjacent cuts the measured producer-plus-consumer total to {fmt_ms(total.get('median_ms'))}, or {fmt_speedup(strict_gain)} against the original client baseline.</p>
-        {l2_latency_bars(l2_cache)}
-      </div>
-      <div>
-        {fact_grid([
-            ["Compact output footprint", fmt_mib(config.get("compact_output_bytes"))],
-            ["Measured L2 cache", fmt_mib(config.get("l2_cache_bytes"))],
-            ["Persisting-L2 budget", fmt_mib(config.get("persisting_l2_max_bytes"))],
-            ["Warm vs cold consumer", fmt_speedup(warm_gain)],
-            ["Persisting total lift", fmt_speedup(total_gain)],
-            ["Custom ABI fit", "HFT / ultra-low latency"],
-        ])}
-      </div>
+    <div class="l2-copy">
+      <h3>When a custom ABI is worth considering</h3>
+      <p>This path is aimed at latency-sensitive customers who can own the compact data contract, producer/consumer coupling, and maintenance burden. It is not the safe library default.</p>
+      <p class="muted">This is the U8 input + U8 output boundary push: the compact producer writes U8 x/w output, then the compact consumer reads it directly. On this Blackwell host, that compact output is {fmt_mib(config.get('compact_output_bytes'))} and fits inside the configured persisting-L2 window. Keeping the stages adjacent cuts the measured producer-plus-consumer total to {fmt_ms(total.get('median_ms'))}, or {fmt_speedup(strict_gain)} against the original client baseline.</p>
+      <p class="muted">The L2 path does not make the workload compute-bound. It reduces read pressure, but the compact consumer still shows a memory-path profile because it writes the score stream and moves predictable global-memory transactions.</p>
     </div>
+    {fact_grid([
+        ["Compact output footprint", fmt_mib(config.get("compact_output_bytes"))],
+        ["Measured L2 cache", fmt_mib(config.get("l2_cache_bytes"))],
+        ["Persisting-L2 budget", fmt_mib(config.get("persisting_l2_max_bytes"))],
+        ["Warm vs cold consumer", fmt_speedup(warm_gain)],
+        ["Persisting total lift", fmt_speedup(total_gain)],
+        ["Custom ABI fit", "HFT / ultra-low latency"],
+    ])}
+    <h3 class="section-subhead">Measured latency path</h3>
+    {l2_latency_bars(l2_cache)}
     <h3 class="section-subhead">Cache residency planning model</h3>
     <p class="muted">Planning estimate only: assume about 70% of advertised cache is usable for resident working data, then verify on the target SKU. Aggregate cache helps only when the workload is partitioned so each GPU or die keeps its shard local.</p>
     {render_table(["GPU family", "Usable cache estimate", "256 MiB working set", "512 MiB working set", "Readout"], rows, "compact-plan")}
@@ -916,10 +907,18 @@ p {{ margin: 0 0 12px; }}
 .section-subhead {{
   margin-top: 22px;
 }}
+.l2-copy {{
+  max-width: 920px;
+}}
+.l2-section .fact-grid {{
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 14px 0 18px;
+}}
 .l2-bars {{
   display: grid;
   gap: 10px;
   margin-top: 16px;
+  max-width: 980px;
 }}
 .l2-bar {{
   align-items: center;
@@ -1075,6 +1074,7 @@ code {{
   .wrap {{ padding: 0 16px; }}
   .hero {{ padding: 34px 0 28px; }}
   .hero-grid, .option-grid, .profiler-grid, .fact-grid {{ grid-template-columns: 1fr; }}
+  .l2-section .fact-grid {{ grid-template-columns: 1fr; }}
   section {{ padding: 18px; }}
   .ladder-row, .mini-row, .l2-bar {{
     align-items: start;

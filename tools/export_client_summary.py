@@ -23,7 +23,7 @@ KEY_VARIANTS = (
         "compact_u8_xw_affine_u8_xw_output_experimental",
     ),
     (
-        "L2-resident compact pipeline",
+        "L2-resident U8 in/out pipeline",
         "compact_u8_producer_consumer_persisting_l2_total_experimental",
     ),
     ("Decode U8 output to float", "decode_u8_xw_output_to_float_experimental"),
@@ -43,7 +43,6 @@ CACHE_PLANNING_ROWS = (
     ("RTX Pro 6000 Blackwell", "~90 MiB", "3 GPUs", "6 GPUs"),
     ("B200", "~180 MiB logical", "2 GPUs", "3 GPUs"),
     ("B300", "~135 MiB", "2 GPUs", "4 GPUs"),
-    ("MI300X / MI325X", "~180 MiB", "2 GPUs", "3 GPUs"),
 )
 
 
@@ -241,9 +240,10 @@ def main():
             else "No L2 residency result was found. Run `make l2-report` for this report directory."
         ),
         "",
-        "This option is for latency-sensitive customers who can own a custom "
-        "compact ABI and keep producer/consumer stages adjacent. It is not the "
-        "drop-in library default.",
+        "This option is the U8 input + U8 output boundary push. It is for "
+        "latency-sensitive customers who can own a custom compact ABI and keep "
+        "producer/consumer stages adjacent. It is not the drop-in library "
+        "default, and it remains memory-path limited rather than compute-bound.",
         "",
         table(
             [

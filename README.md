@@ -274,7 +274,7 @@ probes, not acceptable winners.
 | Compact U16 `x/w` input + FP16 output | compact ushort2 in, half out | yes | 0.124 ms | 106.5x |
 | Compact U8 `x/w` input + FP16 output | compact uchar2 in, half out | yes | 0.105 ms | 125.8x |
 | Compact U8 `x/w` input + U8 `x/w` output | custom compact in/out | yes | 0.025 ms | 528.4x |
-| Compact U8 producer + consumer with persisting L2 | custom compact in/out + adjacent consumer | yes | 0.046 ms | 285.4x |
+| Compact U8 input + U8 output + compact consumer with persisting L2 | custom compact in/out + adjacent consumer | yes | 0.046 ms | 285.4x |
 | Decode compact U8 output to float | custom U8 in, float out | yes | 0.197 ms | 67.1x |
 | Downstream projection from float output | float4 in, score out | yes | 0.213 ms | 62.0x |
 | Downstream projection from compact U8 output | custom U8 in, score out | yes | 0.027 ms | 489.3x |
@@ -294,19 +294,23 @@ the Experiment Ledger below; this section is intentionally just the scoreboard.
 ### L2 Residency Result And Sizing Model
 
 The measured L2 result is an extreme-performance option, not the recommended
-default. On the local RTX PRO 6000 Blackwell host, the compact U8 output is
-`32 MiB`, the device reports `128 MiB` L2, CUDA exposes an `80 MiB` persisting
-L2 budget, and the compact producer-plus-consumer path improves from
-`0.0543 ms` to `0.0463 ms` when the compact output is marked for persisting L2.
-The compact consumer alone runs in `0.0264 ms` when the producer output is warm
-and `0.0711 ms` after an L2-thrashing pass.
+default. It is the U8 input + U8 output boundary push: the compact producer
+writes U8 `x/w` output, then the compact consumer reads that output directly.
+On the local RTX PRO 6000 Blackwell host, the compact U8 output is `32 MiB`,
+the device reports `128 MiB` L2, CUDA exposes an `80 MiB` persisting L2 budget,
+and the compact producer-plus-consumer path improves from `0.0543 ms` to
+`0.0463 ms` when the compact output is marked for persisting L2. The compact
+consumer alone runs in `0.0264 ms` when the producer output is warm and
+`0.0711 ms` after an L2-thrashing pass.
 
 This is valuable for some customers seeking extreme latency, including HFT-like
 pipelines, but it is a trade-off: the product has to own a custom compact ABI,
 keep producer and consumer stages adjacent, and absorb library and maintenance
 work. For larger working sets, cache residency only helps when work is
 partitioned so each GPU or die keeps its shard local; gathering over PCIe can
-erase the benefit.
+erase the benefit. Nsight still reads this path as memory-path limited rather
+than compute-bound: L2 residency helps the read side, but the score stream still
+has to be written and the kernels still move global-memory transactions.
 
 Planning assumptions below use about `70%` of advertised cache as usable for
 resident working data. Verify the exact SKU and workload with `make l2-report`
@@ -322,8 +326,6 @@ before procurement or architecture commitments.
 | B200 (per die, dual-die GPU) | ~126 MB per die | ~88 MB/die |
 | B200 (logical, both dies) | ~252 MB combined | ~180 MB with NUMA penalty |
 | B300 Blackwell Ultra | 192 MB | ~135 MB |
-| AMD MI300X (Infinity Cache) | 256 MB | ~180 MB |
-| AMD MI325X (Infinity Cache) | 256 MB | ~180 MB |
 
 For a `512 MiB` working set, aggregate usable cache must be at least `512 MiB`
 across local shards:
@@ -334,7 +336,6 @@ across local shards:
 | B200 | 3 | ~540 MB | 3 dual-die GPUs provide 6 L2 banks. |
 | B300 | 4 | ~540 MB | Comfortable margin. |
 | H100 / H200 | 15+ | ~525 MB | Impractical; L2 is too small per card. |
-| MI300X / MI325X | 3 | ~540 MB | Similar cache density to the Blackwell dual-die planning case. |
 
 For a `256 MiB` working set, such as a 16-bit output path:
 
@@ -344,7 +345,6 @@ For a `256 MiB` working set, such as a 16-bit output path:
 | B200 | 2 | ~360 MB | Comfortable on 4 dies. |
 | B300 | 2 | ~270 MB | Tight but workable. |
 | H100 / H200 | 8 | ~280 MB | Impractical scale. |
-| MI300X / MI325X | 2 | ~360 MB | Natural fit. |
 
 ## Experiment Ledger
 
@@ -518,8 +518,6 @@ architecture.
   https://docs.nvidia.com/launchpad/ai/h100-mig/latest/h100-mig-gpu.html
 - NVIDIA RTX Blackwell GPU architecture brief, RTX PRO 6000 Blackwell L2 table:
   https://www.nvidia.com/content/dam/en-zz/Solutions/design-visualization/quadro-product-literature/NVIDIA-RTX-Blackwell-PRO-GPU-Architecture-v1.0.pdf
-- AMD Instinct MI300X accelerator data sheet, 256 MB Infinity Cache:
-  https://www.amd.com/content/dam/amd/en/documents/instinct-tech-docs/data-sheets/amd-instinct-mi300x-data-sheet.pdf
 - CUDA Programming Guide, mathematical functions and fast math:
   https://docs.nvidia.com/cuda/archive/13.1.1/cuda-programming-guide/05-appendices/mathematical-functions.html
 - CUDA Blackwell Compatibility Guide:

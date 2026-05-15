@@ -308,6 +308,23 @@ def report_link_line(html_path="index.html", pdf_path="cuda-kernel-performance-r
     return f"[HTML report]({html_path}) · [PDF report]({pdf_path})"
 
 
+def delivery_rows():
+    return [
+        [
+            "Primary low-latency use case",
+            "HFT-style scoring or similar real-time producer/consumer pipelines where compact data can stay local across adjacent stages.",
+        ],
+        [
+            "Buildable report",
+            "Run `make publish-report REPORT_DIR=...` and `make pdf-report` to regenerate HTML and PDF from captured artifacts.",
+        ],
+        [
+            "Hardware adaptation",
+            "GPU name, count, topology, L2 budget, and available timing rows come from JSON/CSV artifacts; missing measurements remain labeled as context.",
+        ],
+    ]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", default="reports/latest")
@@ -337,6 +354,10 @@ def main():
         "## Baseline Contract",
         "",
         table(["Item", "Value"], baseline_rows(baseline, summary)),
+        "",
+        "## Use Case And Delivery Model",
+        "",
+        table(["Item", "Value"], delivery_rows()),
         "",
         "## Key Variants",
         "",

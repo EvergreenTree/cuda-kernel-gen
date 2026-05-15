@@ -23,6 +23,14 @@
 | Drop-in vectorized default | 0.1848 ms |
 | Drop-in speedup vs strict baseline | 80.57x |
 
+## Use Case And Delivery Model
+
+| Item | Value |
+| --- | --- |
+| Primary low-latency use case | HFT-style scoring or similar real-time producer/consumer pipelines where compact data can stay local across adjacent stages. |
+| Buildable report | Run `make publish-report REPORT_DIR=...` and `make pdf-report` to regenerate HTML and PDF from captured artifacts. |
+| Hardware adaptation | GPU name, count, topology, L2 budget, and available timing rows come from JSON/CSV artifacts; missing measurements remain labeled as context. |
+
 ## Key Variants
 
 | Variant | Correct | Median time | Speedup vs kernel baseline | Data moved |

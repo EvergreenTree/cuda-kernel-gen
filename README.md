@@ -12,8 +12,14 @@
   data-contract variants side by side so client decisions are evidence-based.
 - Produce repeatable, machine-specific reports that combine timing, profiler,
   hardware, memory-footprint, and visual summaries.
+- Keep the client report buildable and hardware-adaptive: `make publish-report`
+  regenerates HTML from captured artifacts, and `make pdf-report` renders the
+  PDF without hand-editing hardware-specific numbers.
 - Separate drop-in optimizations from data-contract-changing options such as
   FP16 output, compact fixed-point storage, and compact downstream consumers.
+- Make the target value visible for latency-sensitive use cases such as
+  HFT-style scoring pipelines, where compact producer/consumer stages can avoid
+  avoidable HBM round trips.
 - Productize the tuning workflow: every new machine should start with one report
   command, one readable summary, and ledger-backed recommendations.
 

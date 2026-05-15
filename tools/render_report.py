@@ -1114,7 +1114,6 @@ def build_html(output_dir, link_base_dir=None):
     multi_title, multi_body, scaling = multi_gpu_story(hardware)
     devices = hardware.get("nvidia_smi", {}).get("devices", [])
     gpu_name = devices[0].get("name") if devices else summary.get("gpu", {}).get("name", "this GPU")
-    gpu_short = "B300" if "B300" in gpu_name else "this GPU"
     best_current_l2 = l2_producer or compact
     fastest_observed = best_observed_l2_result(best_current_l2, gpu_name)
     bottleneck = hardware.get("classification", {}).get("bottleneck_hint")
@@ -1136,7 +1135,7 @@ def build_html(output_dir, link_base_dir=None):
     dropin_title = fmt_speedup(default.get("speedup_strict"))
     observed_title = fmt_speedup(fastest_observed.get("speedup"), 0)
     headline = (
-        f"{dropin_title} drop-in on {gpu_short}; up to {observed_title} with compact L2 residency"
+        f"{dropin_title} drop-in acceleration, with {observed_title} upside for latency-critical pipelines"
         if default.get("speedup_strict")
         else "CUDA kernel performance report"
     )
@@ -1757,6 +1756,28 @@ code {{
     <h2>Adoption Path</h2>
     <p class="muted">The benchmark results separate the immediate production answer from higher-upside paths that require more control over the surrounding dataflow.</p>
     {adoption_path_table(default, compact, l2_producer, fused_score, fastest_observed)}
+  </section>
+
+  <section>
+    <h2>Use Case And Delivery Model</h2>
+    <div class="two-col">
+      <div>
+        <h3>Use case: HFT-style low-latency scoring</h3>
+        <p>Compact L2 residency is most valuable when every microsecond affects how many decisions can be evaluated inside a fixed latency window. An HFT-like pipeline is the clearest example: normalize or compact upstream features once, keep the compact working set local, and feed a downstream scoring stage without expanding every lane back through HBM.</p>
+        <p class="muted">The same pattern applies to real-time inference feature transforms, streaming signal analytics, and simulation sweeps where adjacent stages can share compact data directly.</p>
+      </div>
+      <div>
+        <h3>Buildable and hardware-adaptive</h3>
+        <p>This report is generated from repo artifacts, not hand-patched. Re-run <code>make publish-report REPORT_DIR=...</code> and <code>make pdf-report</code> on a client machine to rebuild the HTML and PDF.</p>
+        <p class="muted">Hardware name, GPU count, topology, L2 budget, and available benchmark rows come from the captured JSON/CSV artifacts. Missing measurements stay labeled as context rather than being inferred.</p>
+        {fact_grid([
+            ["Current safe result", fmt_speedup(default.get("speedup_strict"))],
+            ["Current compact L2", fmt_ms(best_current_l2.get("time_ms"))],
+            ["Fastest observed L2", fmt_speedup(fastest_observed.get("speedup"))],
+            ["Rebuild command", "<code>make publish-report</code>"],
+        ])}
+      </div>
+    </div>
   </section>
 
   <section>

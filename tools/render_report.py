@@ -24,6 +24,8 @@ ARTIFACTS = (
     "pipeline_summary.csv",
     "pipeline_summary.json",
     "pipeline_summary.md",
+    "launch_sweep.csv",
+    "launch_sweep.json",
     "ncu_raw.csv",
     "ncu_memory_raw.csv",
     "ptxas.log",

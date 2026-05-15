@@ -51,7 +51,7 @@ defend.
 - [x] Add precision/error-distribution reporting for ABI-changing outputs. FP16,
   BF16, U8, and U4 paths should show max/mean/RMS relative error plus tolerance
   miss counts, not only pass/fail and first mismatch.
-- [ ] Automate the low-upside single-GPU tuning lane. Launch geometry, ILP, and
+- [x] Automate the low-upside single-GPU tuning lane. Launch geometry, ILP, and
   register-cap sweeps should be reproducible scripts so future devices can
   re-check the conclusion without manual rebuild loops.
 
@@ -223,6 +223,15 @@ max/mean/RMS relative error, absolute error, and relative-error histogram bucket
 for FP16, BF16, compact U8, compact U4, and related ABI-changing outputs.
 
 ```bash
+make launch-sweep
+```
+
+Runs a focused rebuild sweep across launch geometry, ILP, and register-cap
+settings, then writes `launch_sweep.csv` and `launch_sweep.json` under
+`REPORT_DIR`. This is the reproducible lane for re-checking whether a new GPU or
+toolkit changed the old conclusion that the default is memory-throughput bound.
+
+```bash
 make fit-poly
 ```
 
@@ -361,6 +370,8 @@ directories:
 - `pipeline_summary.json` / `pipeline_summary.csv` / `pipeline_summary.md`:
   compact-layout setup, decode, and downstream-consumer comparisons from `make
   pipeline-report`.
+- `launch_sweep.json` / `launch_sweep.csv`: rebuild sweep for launch geometry,
+  ILP, and register caps from `make launch-sweep`.
 
 ## Glossary
 

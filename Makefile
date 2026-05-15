@@ -33,7 +33,7 @@ FATBIN_FLAGS := \
 	-gencode arch=compute_120,code=sm_120 \
 	-gencode arch=compute_120,code=compute_120
 
-.PHONY: all check baseline-check specialized-check bf16-experiment layout-experiment graph-experiment pipeline-report error-report multi-gpu-check multi-gpu-report fatbin-check sanitize bench baseline-report profile-time profile-space hardware-report profile report client-summary client-report publish-report profile-quick fit-poly clean
+.PHONY: all check baseline-check specialized-check bf16-experiment layout-experiment graph-experiment pipeline-report error-report launch-sweep multi-gpu-check multi-gpu-report fatbin-check sanitize bench baseline-report profile-time profile-space hardware-report profile report client-summary client-report publish-report profile-quick fit-poly clean
 
 all: optimized.x
 
@@ -87,6 +87,9 @@ pipeline-report:
 
 error-report:
 	$(PYTHON) tools/error_report.py --build --runs $(BENCH_RUNS) --nreps $(BENCH_NREPS) --dimx $(PROFILE_DIM) --dimy $(PROFILE_DIM) --output-dir $(REPORT_DIR)
+
+launch-sweep:
+	$(PYTHON) tools/launch_sweep.py --runs $(BENCH_RUNS) --nreps $(BENCH_NREPS) --dimx $(PROFILE_DIM) --dimy $(PROFILE_DIM) --output-dir $(REPORT_DIR)
 
 multi-gpu-check: multi-gpu.x
 	./multi-gpu.x

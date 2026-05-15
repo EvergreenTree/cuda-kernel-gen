@@ -15,6 +15,7 @@ CLIENT_PROFILE_FLAGS ?= --memory-details
 
 OPT_SRC := src/cuda_prog.cu
 PROBLEM_SRC := problem/cuda_prog_unoptimized.cu
+MULTI_GPU_SRC := src/multi_gpu_row_shard.cu
 
 COMMON_FLAGS := -O3 -lineinfo -Xcompiler -fopenmp
 ARCH_FLAGS ?= -arch=native
@@ -31,7 +32,7 @@ FATBIN_FLAGS := \
 	-gencode arch=compute_120,code=sm_120 \
 	-gencode arch=compute_120,code=compute_120
 
-.PHONY: all check baseline-check specialized-check bf16-experiment layout-experiment graph-experiment fatbin-check sanitize bench baseline-report profile-time profile-space hardware-report profile report client-summary client-report publish-report profile-quick fit-poly clean
+.PHONY: all check baseline-check specialized-check bf16-experiment layout-experiment graph-experiment multi-gpu-check multi-gpu-report fatbin-check sanitize bench baseline-report profile-time profile-space hardware-report profile report client-summary client-report publish-report profile-quick fit-poly clean
 
 all: optimized.x
 
@@ -52,6 +53,9 @@ graph.x: $(OPT_SRC)
 
 baseline.x: $(PROBLEM_SRC)
 	$(NVCC) $(COMMON_FLAGS) $< -o $@
+
+multi-gpu.x: $(MULTI_GPU_SRC)
+	$(NVCC) $(COMMON_FLAGS) $(ARCH_FLAGS) $(FAST_FLAGS) $(TUNE_FLAGS) $< -o $@
 
 fatbin.x: $(OPT_SRC)
 	$(NVCC) $(COMMON_FLAGS) $(FAST_FLAGS) $(FATBIN_FLAGS) $(TUNE_FLAGS) $< -o $@
@@ -74,6 +78,9 @@ layout-experiment: layout.x
 graph-experiment: graph.x
 	./graph.x
 
+multi-gpu-check: multi-gpu.x
+	./multi-gpu.x
+
 fatbin-check: fatbin.x
 	./fatbin.x
 
@@ -94,6 +101,9 @@ profile-space: optimized.x
 
 hardware-report:
 	$(PYTHON) tools/hardware_report.py --output-dir $(REPORT_DIR)
+
+multi-gpu-report:
+	$(PYTHON) tools/multi_gpu_report.py --build --runs $(BENCH_RUNS) --nreps $(BENCH_NREPS) --dimx $(PROFILE_DIM) --dimy $(PROFILE_DIM) --output-dir $(REPORT_DIR)
 
 report:
 	$(PYTHON) tools/render_report.py --output-dir $(REPORT_DIR)

@@ -39,7 +39,7 @@ Blackwell, so the remaining high-upside work is structural: move fewer bytes,
 measure multi-GPU throughput honestly, and make ABI-changing choices easier to
 defend.
 
-- [ ] Add a true row-sharded multi-GPU benchmark. It should report single-GPU
+- [x] Add a true row-sharded multi-GPU benchmark. It reports single-GPU
   timing, sharded timing without gather, optional host-gather timing, device
   topology, and per-GPU row ranges. PCIe/PHB hosts are still useful when data is
   already partitioned or capacity/throughput matters more than a single gathered
@@ -194,6 +194,15 @@ make graph-experiment
 Builds a small `64 x 64` replay test with `NREPS=5000` to compare ordinary
 stream submission against CUDA Graph replay for many tiny H2D-copy-plus-kernel
 launches.
+
+```bash
+make multi-gpu-report
+```
+
+Builds and runs the row-sharded multi-GPU benchmark, then writes
+`multi_gpu.csv` and `multi_gpu.json` under `REPORT_DIR`. The benchmark reports a
+single-GPU kernel baseline, a row-sharded no-gather throughput row, and a
+row-sharded host-gather row so PCIe/PHB systems can be interpreted honestly.
 
 ```bash
 make fit-poly

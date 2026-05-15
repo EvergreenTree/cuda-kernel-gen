@@ -274,6 +274,7 @@ probes, not acceptable winners.
 | Compact U16 `x/w` input + FP16 output | compact ushort2 in, half out | yes | 0.124 ms | 106.5x |
 | Compact U8 `x/w` input + FP16 output | compact uchar2 in, half out | yes | 0.105 ms | 125.8x |
 | Compact U8 `x/w` input + U8 `x/w` output | custom compact in/out | yes | 0.025 ms | 528.4x |
+| Compact U8 producer + consumer with persisting L2 | custom compact in/out + adjacent consumer | yes | 0.046 ms | 285.4x |
 | Decode compact U8 output to float | custom U8 in, float out | yes | 0.197 ms | 67.1x |
 | Downstream projection from float output | float4 in, score out | yes | 0.213 ms | 62.0x |
 | Downstream projection from compact U8 output | custom U8 in, score out | yes | 0.027 ms | 489.3x |
@@ -289,6 +290,61 @@ probes, not acceptable winners.
 
 The durable hypotheses, profiler mechanisms, and stop/revisit decisions live in
 the Experiment Ledger below; this section is intentionally just the scoreboard.
+
+### L2 Residency Result And Sizing Model
+
+The measured L2 result is an extreme-performance option, not the recommended
+default. On the local RTX PRO 6000 Blackwell host, the compact U8 output is
+`32 MiB`, the device reports `128 MiB` L2, CUDA exposes an `80 MiB` persisting
+L2 budget, and the compact producer-plus-consumer path improves from
+`0.0543 ms` to `0.0463 ms` when the compact output is marked for persisting L2.
+The compact consumer alone runs in `0.0264 ms` when the producer output is warm
+and `0.0711 ms` after an L2-thrashing pass.
+
+This is valuable for some customers seeking extreme latency, including HFT-like
+pipelines, but it is a trade-off: the product has to own a custom compact ABI,
+keep producer and consumer stages adjacent, and absorb library and maintenance
+work. For larger working sets, cache residency only helps when work is
+partitioned so each GPU or die keeps its shard local; gathering over PCIe can
+erase the benefit.
+
+Planning assumptions below use about `70%` of advertised cache as usable for
+resident working data. Verify the exact SKU and workload with `make l2-report`
+before procurement or architecture commitments.
+
+| GPU | L2 cache | Usable for data (~70%) |
+| --- | ---: | ---: |
+| H100 SXM/PCIe | 50 MB | ~35 MB |
+| H200 SXM (same GH100 die) | 50 MB | ~35 MB |
+| RTX 6000 Ada | 96 MB | ~67 MB |
+| RTX 5090 (consumer) | 96 MB | ~67 MB |
+| RTX Pro 6000 Blackwell | 128 MB | ~90 MB |
+| B200 (per die, dual-die GPU) | ~126 MB per die | ~88 MB/die |
+| B200 (logical, both dies) | ~252 MB combined | ~180 MB with NUMA penalty |
+| B300 Blackwell Ultra | 192 MB | ~135 MB |
+| AMD MI300X (Infinity Cache) | 256 MB | ~180 MB |
+| AMD MI325X (Infinity Cache) | 256 MB | ~180 MB |
+
+For a `512 MiB` working set, aggregate usable cache must be at least `512 MiB`
+across local shards:
+
+| GPU | GPUs needed | Aggregate usable cache | Notes |
+| --- | ---: | ---: | --- |
+| RTX Pro 6000 | 6 | ~540 MB | 5 is tight under the usable-cache model; 6 gives headroom. |
+| B200 | 3 | ~540 MB | 3 dual-die GPUs provide 6 L2 banks. |
+| B300 | 4 | ~540 MB | Comfortable margin. |
+| H100 / H200 | 15+ | ~525 MB | Impractical; L2 is too small per card. |
+| MI300X / MI325X | 3 | ~540 MB | Similar cache density to the Blackwell dual-die planning case. |
+
+For a `256 MiB` working set, such as a 16-bit output path:
+
+| GPU | GPUs needed | Aggregate usable cache | Notes |
+| --- | ---: | ---: | --- |
+| RTX Pro 6000 | 3 | ~270 MB | Partition into about 85 MB per GPU. |
+| B200 | 2 | ~360 MB | Comfortable on 4 dies. |
+| B300 | 2 | ~270 MB | Tight but workable. |
+| H100 / H200 | 8 | ~280 MB | Impractical scale. |
+| MI300X / MI325X | 2 | ~360 MB | Natural fit. |
 
 ## Experiment Ledger
 
@@ -320,7 +376,7 @@ and the practical takeaway.
 | GPU packing plus custom U8 output can win end-to-end | `0.2500 ms` median over 3 full-size runs from original AoS input | Reuses the measured U8 pack and custom U8-output consumer; logical traffic drops to `320 MiB` for pack input/write plus compact output path | First setup-paid compact win, but it requires the strongest ABI specialization: U8 x/w input, U8 x/w output, and implicit y/z constants |
 | Decoding custom U8 output back to float can erase the win | Decode-only `0.1972 ms`; pack plus custom U8 output plus float decode `0.4356 ms` median over 3 full-size runs | Nsight on decode reports `177.344 us`, `82.98%` DRAM throughput, `34 MB` reads, `199 MB` writes, `1,048,576` L1 load sectors, and `8,388,608` L1 store sectors | Custom output is only attractive if downstream consumes compact form or decode is fused with useful work |
 | A realistic compact downstream consumer can preserve the custom-output win | Float-output projection `0.2125 ms`; compact-U8 projection `0.0274 ms`; full float pipeline plus projection `0.5789 ms`; setup-paid compact pipeline plus projection `0.2866 ms` | Nsight reports the float consumer at `211.168 us`, `92.61%` DRAM throughput, `268 MB` reads, and `8,388,608` L1 load sectors; compact consumer at `36.640 us`, `80.3%` DRAM throughput, `34 MB` reads, and `1,048,576` L1 load sectors | Custom U8 output is viable only when the next stage consumes compact x/w directly; this is the current best measured end-to-end specialized path |
-| Compact U8 output can benefit from L2 residency | Consumer after producer `0.0264 ms`; same consumer after a `256 MiB` L2-thrashing pass `0.0711 ms`; persisting-L2 producer+consumer total `0.0463 ms` versus `0.0543 ms` without it | Blackwell reports `128 MiB` L2 and `80 MiB` persisting set-aside; compact output is `32 MiB`, so the output fits in the persisting window | L2 residency is a real lever for compact producer-consumer pipelines, but the larger win is still fusion or keeping multiple consumers on compact output |
+| Compact U8 output can benefit from L2 residency | Consumer after producer `0.0264 ms`; same consumer after a `256 MiB` L2-thrashing pass `0.0711 ms`; persisting-L2 producer+consumer total `0.0463 ms` versus `0.0543 ms` without it | Blackwell reports `128 MiB` L2 and `80 MiB` persisting set-aside; compact output is `32 MiB`, so the output fits in the persisting window | Real lever for compact producer-consumer pipelines and HFT-like latency work, but only when custom ABI ownership and maintenance cost are acceptable |
 | BF16 output might be cheaper enough while staying inside tolerance | `0.2570 ms`, expected failure; first checked element had `rdiff 0.001955` | BF16 has the same output byte count as FP16 here but too few mantissa bits for the benchmark tolerance | Do not use BF16 unless the tolerance relaxes or output error is judged differently downstream |
 | SASS should confirm what `tan` actually costs | Default vector SASS contains `MUFU.SIN`, `MUFU.COS`, and `MUFU.RCP` in the tangent lane | `__tanf` lowers to sin/cos/reciprocal-like work, so explicit `sincos` sharing is not free across independent lanes | Worth revisiting only if the iterative scalar path becomes the target again |
 | CUDA Graph replay can amortize launch overhead | On `64 x 64`, stream H2D+kernel replay measured `0.014572 ms`; graph replay measured `0.013954 ms` | Graph replay trims host submission overhead, but the tested end-to-end replay still includes the H2D copy and tiny kernel work | Useful only for many small launches; it is not a lever for the full-size event-timed kernel |
@@ -458,6 +514,12 @@ architecture.
 
 - CUDA Programming Guide, coalesced global memory access:
   https://docs.nvidia.com/cuda/archive/13.1.0/cuda-programming-guide/02-basics/writing-cuda-kernels.html
+- NVIDIA H100 documentation, 50 MB L2 cache:
+  https://docs.nvidia.com/launchpad/ai/h100-mig/latest/h100-mig-gpu.html
+- NVIDIA RTX Blackwell GPU architecture brief, RTX PRO 6000 Blackwell L2 table:
+  https://www.nvidia.com/content/dam/en-zz/Solutions/design-visualization/quadro-product-literature/NVIDIA-RTX-Blackwell-PRO-GPU-Architecture-v1.0.pdf
+- AMD Instinct MI300X accelerator data sheet, 256 MB Infinity Cache:
+  https://www.amd.com/content/dam/amd/en/documents/instinct-tech-docs/data-sheets/amd-instinct-mi300x-data-sheet.pdf
 - CUDA Programming Guide, mathematical functions and fast math:
   https://docs.nvidia.com/cuda/archive/13.1.1/cuda-programming-guide/05-appendices/mathematical-functions.html
 - CUDA Blackwell Compatibility Guide:

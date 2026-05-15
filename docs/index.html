@@ -134,7 +134,7 @@ p { margin: 0 0 12px; }
 .option-grid {
   display: grid;
   gap: 14px;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(175px, 1fr));
 }
 .option-card {
   border: 1px solid var(--line);
@@ -229,6 +229,41 @@ p { margin: 0 0 12px; }
 }
 .mini-track i {
   background: var(--nvidia);
+  display: block;
+  height: 100%;
+}
+.section-subhead {
+  margin-top: 22px;
+}
+.l2-bars {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+.l2-bar {
+  align-items: center;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(170px, 250px) minmax(120px, 1fr) 86px;
+}
+.l2-bar strong, .l2-bar span {
+  display: block;
+}
+.l2-bar span {
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+.l2-bar b {
+  text-align: right;
+}
+.l2-track {
+  background: #e6ece8;
+  border-radius: 999px;
+  height: 14px;
+  overflow: hidden;
+}
+.l2-track i {
+  background: linear-gradient(90deg, var(--cyan), var(--nvidia));
   display: block;
   height: 100%;
 }
@@ -360,12 +395,12 @@ code {
   .hero { padding: 34px 0 28px; }
   .hero-grid, .option-grid, .profiler-grid, .fact-grid { grid-template-columns: 1fr; }
   section { padding: 18px; }
-  .ladder-row, .mini-row {
+  .ladder-row, .mini-row, .l2-bar {
     align-items: start;
     grid-template-columns: 1fr;
     gap: 6px;
   }
-  .ladder-value, .mini-row strong { text-align: left; }
+  .ladder-value, .mini-row strong, .l2-bar b { text-align: left; }
   table { min-width: 760px; }
 }
 </style>
@@ -456,6 +491,19 @@ code {
               </div>
             </article>
 
+            <article class="option-card max">
+              <div>
+                <span class="pill">Extreme ABI</span>
+                <h3>L2-resident compact pipeline</h3>
+                <p>Producer and compact consumer run back-to-back with persisting L2; valuable only when custom ABI ownership is acceptable.</p>
+              </div>
+              <div class="option-metrics">
+                <strong>282.3x</strong>
+                <span>0.0463 ms</span>
+                <span>160 MiB data moved</span>
+              </div>
+            </article>
+
             <article class="option-card option">
               <div>
                 <span class="pill">Pipeline</span>
@@ -485,6 +533,17 @@ code {
                 <span style="width: 100.00%"></span>
               </div>
               <div class="ladder-value">542.7x</div>
+            </div>
+
+            <div class="ladder-row max">
+              <div class="ladder-label">
+                <strong>L2-resident compact pipeline</strong>
+                <span>Extreme ABI</span>
+              </div>
+              <div class="ladder-track">
+                <span style="width: 52.02%"></span>
+              </div>
+              <div class="ladder-value">282.3x</div>
             </div>
 
             <div class="ladder-row option">
@@ -574,17 +633,6 @@ code {
               </div>
               <div class="ladder-value">25.7x</div>
             </div>
-
-            <div class="ladder-row neutral">
-              <div class="ladder-label">
-                <strong>Original row-stride kernel</strong>
-                <span>Kernel baseline</span>
-              </div>
-              <div class="ladder-track">
-                <span style="width: 1.50%"></span>
-              </div>
-              <div class="ladder-value">2.0x</div>
-            </div>
             </div>
   </section>
 
@@ -646,6 +694,11 @@ code {
                 </div>
                 </td><td data-label="Track"><span class="track max">Specialized ABI</span></td><td data-label="Status">Pass</td><td data-label="Speedup">542.7x</td><td data-label="Time">0.0241 ms</td><td data-label="Footprint"><div class="chips"><span>64 MiB data moved</span><span>16 registers/thread</span><span>0 spill bytes</span></div></td></tr><tr><td data-label="Variant">
                 <div class="variant-name">
+                  <strong>L2-resident compact pipeline</strong>
+                  <span>Producer and compact consumer run back-to-back with persisting L2; valuable only when custom ABI ownership is acceptable.</span>
+                </div>
+                </td><td data-label="Track"><span class="track max">Extreme ABI</span></td><td data-label="Status">Pass</td><td data-label="Speedup">282.3x</td><td data-label="Time">0.0463 ms</td><td data-label="Footprint"><div class="chips"><span>160 MiB data moved</span></div></td></tr><tr><td data-label="Variant">
+                <div class="variant-name">
                   <strong>Compact U8 input + FP16 output</strong>
                   <span>Best when an upstream producer can emit only the two changing values directly.</span>
                 </div>
@@ -691,6 +744,50 @@ code {
                 </div>
                 </td><td data-label="Track"><span class="track neutral">Kernel baseline</span></td><td data-label="Status">Pass</td><td data-label="Speedup">2.0x</td><td data-label="Time">6.5958 ms</td><td data-label="Footprint"><div class="chips"><span>512 MiB data moved</span><span>20 registers/thread</span><span>0 spill bytes</span></div></td></tr></tbody></table></div>
   </section>
+
+
+  <section>
+    <h2>Extreme L2-Resident Path</h2>
+    <div class="two-col">
+      <div>
+        <h3>When a custom ABI is worth considering</h3>
+        <p>This path is aimed at latency-sensitive customers who can own the compact data contract, producer/consumer coupling, and maintenance burden. It is not the safe library default.</p>
+        <p class="muted">On this Blackwell host, the compact output is 32 MiB and fits inside the configured persisting-L2 window. Keeping the compact producer and consumer adjacent cuts the measured producer-plus-consumer total to 0.0463 ms, or 282.3x against the original client baseline.</p>
+        <div class="l2-bars">
+            <div class="l2-bar">
+              <div><strong>Thrashed consumer</strong><span>Cold path after a 256 MiB L2-thrashing pass</span></div>
+              <div class="l2-track"><i style="width: 100.00%"></i></div>
+              <b>0.0710 ms</b>
+            </div>
+
+            <div class="l2-bar">
+              <div><strong>Warm consumer</strong><span>Producer output is still resident</span></div>
+              <div class="l2-track"><i style="width: 37.32%"></i></div>
+              <b>0.0265 ms</b>
+            </div>
+
+            <div class="l2-bar">
+              <div><strong>Persisting consumer</strong><span>CUDA persisting-L2 window applied</span></div>
+              <div class="l2-track"><i style="width: 32.75%"></i></div>
+              <b>0.0233 ms</b>
+            </div>
+
+            <div class="l2-bar">
+              <div><strong>Persisting total</strong><span>Producer plus compact consumer</span></div>
+              <div class="l2-track"><i style="width: 65.24%"></i></div>
+              <b>0.0463 ms</b>
+            </div>
+            </div>
+      </div>
+      <div>
+        <div class="fact-grid"><div class="fact"><span>Compact output footprint</span><strong>32 MiB</strong></div><div class="fact"><span>Measured L2 cache</span><strong>128 MiB</strong></div><div class="fact"><span>Persisting-L2 budget</span><strong>80 MiB</strong></div><div class="fact"><span>Warm vs cold consumer</span><strong>2.7x</strong></div><div class="fact"><span>Persisting total lift</span><strong>1.2x</strong></div><div class="fact"><span>Custom ABI fit</span><strong>HFT / ultra-low latency</strong></div></div>
+      </div>
+    </div>
+    <h3 class="section-subhead">Cache residency planning model</h3>
+    <p class="muted">Planning estimate only: assume about 70% of advertised cache is usable for resident working data, then verify on the target SKU. Aggregate cache helps only when the workload is partitioned so each GPU or die keeps its shard local.</p>
+    <div class="table-wrap compact-plan"><table><thead><tr><th>GPU family</th><th>Usable cache estimate</th><th>256 MiB working set</th><th>512 MiB working set</th><th>Readout</th></tr></thead><tbody><tr><td data-label="GPU family">H100 / H200</td><td data-label="Usable cache estimate">~35 MiB</td><td data-label="256 MiB working set">8 GPUs</td><td data-label="512 MiB working set">15+ GPUs</td><td data-label="Readout">L2 density is too small for this tactic at practical scale.</td></tr><tr><td data-label="GPU family">RTX 6000 Ada / RTX 5090</td><td data-label="Usable cache estimate">~67 MiB</td><td data-label="256 MiB working set">4 GPUs</td><td data-label="512 MiB working set">8 GPUs</td><td data-label="Readout">Good single-die cache, but still needs sharding for larger working sets.</td></tr><tr><td data-label="GPU family">RTX Pro 6000 Blackwell</td><td data-label="Usable cache estimate">~90 MiB</td><td data-label="256 MiB working set">3 GPUs</td><td data-label="512 MiB working set">6 GPUs</td><td data-label="Readout">Best fit among workstation-class NVIDIA parts in this planning model.</td></tr><tr><td data-label="GPU family">B200</td><td data-label="Usable cache estimate">~180 MiB logical</td><td data-label="256 MiB working set">2 GPUs</td><td data-label="512 MiB working set">3 GPUs</td><td data-label="Readout">Dual-die cache can work if the workload respects die locality.</td></tr><tr><td data-label="GPU family">B300</td><td data-label="Usable cache estimate">~135 MiB</td><td data-label="256 MiB working set">2 GPUs</td><td data-label="512 MiB working set">4 GPUs</td><td data-label="Readout">Comfortable for 256 MiB; larger sets still need sharding.</td></tr><tr><td data-label="GPU family">MI300X / MI325X</td><td data-label="Usable cache estimate">~180 MiB</td><td data-label="256 MiB working set">2 GPUs</td><td data-label="512 MiB working set">3 GPUs</td><td data-label="Readout">Infinity Cache gives similar density to the B200 planning case.</td></tr></tbody></table></div>
+  </section>
+
 
   <section>
     <h2>Multi-GPU Outlook</h2>

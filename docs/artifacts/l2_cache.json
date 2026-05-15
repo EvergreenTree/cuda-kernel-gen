@@ -1,0 +1,81 @@
+{
+  "dimx": 8192,
+  "dimy": 8192,
+  "nreps": 100,
+  "runs": 3,
+  "config": {
+    "l2_cache_bytes": 134217728,
+    "persisting_l2_max_bytes": 83886080,
+    "access_policy_max_window_bytes": 134217728,
+    "compact_output_bytes": 33554432,
+    "thrash_bytes": 268435456,
+    "set_aside_bytes": 33554432,
+    "window_bytes": 33554432
+  },
+  "variants": {
+    "consume_u8_after_producer_warm_l2_experimental": {
+      "correct": true,
+      "median_ms": 0.026502,
+      "min_ms": 0.026215,
+      "max_ms": 0.026512,
+      "samples": 3,
+      "logical_bytes_per_launch": 100663296,
+      "effective_bandwidth_gbps": 3798.3282771111612,
+      "persisting_l2": false
+    },
+    "consume_u8_after_l2_thrash_experimental": {
+      "correct": true,
+      "median_ms": 0.071011,
+      "min_ms": 0.070954,
+      "max_ms": 0.071214,
+      "samples": 3,
+      "logical_bytes_per_launch": 100663296,
+      "effective_bandwidth_gbps": 1417.5732773795607,
+      "persisting_l2": false,
+      "speedup_of_warm_l2_vs_thrash": 2.679458154101577
+    },
+    "consume_u8_after_persisting_l2_experimental": {
+      "correct": true,
+      "median_ms": 0.023253,
+      "min_ms": 0.023207,
+      "max_ms": 0.023798,
+      "samples": 3,
+      "logical_bytes_per_launch": 100663296,
+      "effective_bandwidth_gbps": 4329.045542510644,
+      "persisting_l2": true,
+      "speedup_vs_warm_l2": 1.1397239065926978
+    },
+    "consume_u8_after_persisting_l2_thrash_experimental": {
+      "correct": true,
+      "median_ms": 0.042935,
+      "min_ms": 0.0429,
+      "max_ms": 0.043089,
+      "samples": 3,
+      "logical_bytes_per_launch": 100663296,
+      "effective_bandwidth_gbps": 2344.5509724001395,
+      "persisting_l2": true,
+      "speedup_vs_thrash_without_persisting": 1.6539187143356238
+    },
+    "compact_u8_producer_consumer_total_experimental": {
+      "correct": true,
+      "median_ms": 0.05415,
+      "min_ms": 0.054124,
+      "max_ms": 0.05426,
+      "samples": 3,
+      "logical_bytes_per_launch": 167772160,
+      "effective_bandwidth_gbps": 3098.285503231764,
+      "persisting_l2": false
+    },
+    "compact_u8_producer_consumer_persisting_l2_total_experimental": {
+      "correct": true,
+      "median_ms": 0.046331,
+      "min_ms": 0.046238,
+      "max_ms": 0.046704,
+      "samples": 3,
+      "logical_bytes_per_launch": 167772160,
+      "effective_bandwidth_gbps": 3621.164231292223,
+      "persisting_l2": true
+    }
+  },
+  "raw_output": "l2_config,l2_cache_bytes,134217728\nl2_config,persisting_l2_max_bytes,83886080\nl2_config,access_policy_max_window_bytes,134217728\nl2_config,compact_output_bytes,33554432\nl2_config,thrash_bytes,268435456\nvariant,correct,time_ms,logical_bytes,persisting_l2\nconsume_u8_after_producer_warm_l2_experimental,yes,0.026512,100663296,no\nconsume_u8_after_l2_thrash_experimental,yes,0.071214,100663296,no\nconsume_u8_after_persisting_l2_experimental,yes,0.023798,100663296,yes\nconsume_u8_after_persisting_l2_thrash_experimental,yes,0.042935,100663296,yes\ncompact_u8_producer_consumer_total_experimental,yes,0.054124,167772160,no\ncompact_u8_producer_consumer_persisting_l2_total_experimental,yes,0.046331,167772160,yes\nl2_config,set_aside_bytes,33554432\nl2_config,window_bytes,33554432\nCUDA: no error\n\n--- run ---\nl2_config,l2_cache_bytes,134217728\nl2_config,persisting_l2_max_bytes,83886080\nl2_config,access_policy_max_window_bytes,134217728\nl2_config,compact_output_bytes,33554432\nl2_config,thrash_bytes,268435456\nvariant,correct,time_ms,logical_bytes,persisting_l2\nconsume_u8_after_producer_warm_l2_experimental,yes,0.026215,100663296,no\nconsume_u8_after_l2_thrash_experimental,yes,0.071011,100663296,no\nconsume_u8_after_persisting_l2_experimental,yes,0.023207,100663296,yes\nconsume_u8_after_persisting_l2_thrash_experimental,yes,0.043089,100663296,yes\ncompact_u8_producer_consumer_total_experimental,yes,0.054150,167772160,no\ncompact_u8_producer_consumer_persisting_l2_total_experimental,yes,0.046238,167772160,yes\nl2_config,set_aside_bytes,33554432\nl2_config,window_bytes,33554432\nCUDA: no error\n\n--- run ---\nl2_config,l2_cache_bytes,134217728\nl2_config,persisting_l2_max_bytes,83886080\nl2_config,access_policy_max_window_bytes,134217728\nl2_config,compact_output_bytes,33554432\nl2_config,thrash_bytes,268435456\nvariant,correct,time_ms,logical_bytes,persisting_l2\nconsume_u8_after_producer_warm_l2_experimental,yes,0.026502,100663296,no\nconsume_u8_after_l2_thrash_experimental,yes,0.070954,100663296,no\nconsume_u8_after_persisting_l2_experimental,yes,0.023253,100663296,yes\nconsume_u8_after_persisting_l2_thrash_experimental,yes,0.042900,100663296,yes\ncompact_u8_producer_consumer_total_experimental,yes,0.054260,167772160,no\ncompact_u8_producer_consumer_persisting_l2_total_experimental,yes,0.046704,167772160,yes\nl2_config,set_aside_bytes,33554432\nl2_config,window_bytes,33554432\nCUDA: no error\n"
+}

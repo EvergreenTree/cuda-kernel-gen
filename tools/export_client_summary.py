@@ -22,6 +22,10 @@ KEY_VARIANTS = (
         "Compact U8 input + U8 output",
         "compact_u8_xw_affine_u8_xw_output_experimental",
     ),
+    (
+        "L2-resident compact pipeline",
+        "compact_u8_producer_consumer_persisting_l2_total_experimental",
+    ),
     ("Decode U8 output to float", "decode_u8_xw_output_to_float_experimental"),
     (
         "Float output + score pipeline",
@@ -31,6 +35,15 @@ KEY_VARIANTS = (
         "Compact U8 output + score pipeline",
         "compact_u8_xw_u8_output_consumer_with_gpu_pack_pipeline_experimental",
     ),
+)
+
+CACHE_PLANNING_ROWS = (
+    ("H100 / H200", "~35 MiB", "8 GPUs", "15+ GPUs"),
+    ("RTX 6000 Ada / RTX 5090", "~67 MiB", "4 GPUs", "8 GPUs"),
+    ("RTX Pro 6000 Blackwell", "~90 MiB", "3 GPUs", "6 GPUs"),
+    ("B200", "~180 MiB logical", "2 GPUs", "3 GPUs"),
+    ("B300", "~135 MiB", "2 GPUs", "4 GPUs"),
+    ("MI300X / MI325X", "~180 MiB", "2 GPUs", "3 GPUs"),
 )
 
 
@@ -80,6 +93,37 @@ def variant_rows(summary):
             ]
         )
     return rows
+
+
+def l2_summary_rows(l2_cache, baseline):
+    variants = l2_cache.get("variants", {})
+    total = variants.get("compact_u8_producer_consumer_persisting_l2_total_experimental")
+    warm = variants.get("consume_u8_after_producer_warm_l2_experimental", {})
+    thrashed = variants.get("consume_u8_after_l2_thrash_experimental", {})
+    no_persist_total = variants.get("compact_u8_producer_consumer_total_experimental", {})
+    if not total:
+        return []
+
+    strict_ms = baseline.get("time_ms")
+    warm_gain = (
+        thrashed.get("median_ms") / warm.get("median_ms")
+        if thrashed.get("median_ms") and warm.get("median_ms")
+        else None
+    )
+    persist_gain = (
+        no_persist_total.get("median_ms") / total.get("median_ms")
+        if no_persist_total.get("median_ms") and total.get("median_ms")
+        else None
+    )
+    strict_gain = strict_ms / total.get("median_ms") if strict_ms and total.get("median_ms") else None
+    return [
+        ["Persisting producer + consumer", fmt(total.get("median_ms"), 4, " ms")],
+        ["Speedup vs strict baseline", fmt(strict_gain, 1, "x")],
+        ["Warm consumer vs thrashed consumer", fmt(warm_gain, 1, "x")],
+        ["Persisting total lift", fmt(persist_gain, 2, "x")],
+        ["Compact output footprint", fmt_mib(l2_cache.get("config", {}).get("compact_output_bytes"))],
+        ["L2 budget on this host", fmt_mib(l2_cache.get("config", {}).get("persisting_l2_max_bytes"))],
+    ]
 
 
 def hardware_rows(summary, hardware):
@@ -156,6 +200,7 @@ def main():
     hardware = read_json(output_dir / "hardware.json", {})
     space = read_json(output_dir / "space.json", {})
     baseline = read_json(output_dir / "baseline.json", {})
+    l2_cache = read_json(output_dir / "l2_cache.json", {})
 
     ncu_status = space.get("ncu", {}).get("status", "missing")
     ncu_command = space.get("ncu", {}).get("command")
@@ -187,6 +232,28 @@ def main():
         )
         if rows
         else "No timing rows were found. Run `make profile` first.",
+        "",
+        "## Extreme L2-Resident Option",
+        "",
+        (
+            table(["Item", "Value"], l2_summary_rows(l2_cache, baseline))
+            if l2_summary_rows(l2_cache, baseline)
+            else "No L2 residency result was found. Run `make l2-report` for this report directory."
+        ),
+        "",
+        "This option is for latency-sensitive customers who can own a custom "
+        "compact ABI and keep producer/consumer stages adjacent. It is not the "
+        "drop-in library default.",
+        "",
+        table(
+            [
+                "GPU family",
+                "Usable cache estimate",
+                "256 MiB working set",
+                "512 MiB working set",
+            ],
+            [list(row) for row in CACHE_PLANNING_ROWS],
+        ),
         "",
         "## Profiler Status",
         "",

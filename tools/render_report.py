@@ -38,11 +38,13 @@ PRIMARY_VARIANTS = (
     "vector4_affine_half_output_sparse_experimental",
     "compact_u8_xw_affine_half_output_experimental",
     "compact_u8_xw_affine_u8_xw_output_experimental",
+    "compact_u8_producer_consumer_persisting_l2_total_experimental",
     "compact_u8_xw_u8_output_consumer_with_gpu_pack_pipeline_experimental",
 )
 
 CLIENT_VARIANTS = (
     "compact_u8_xw_affine_u8_xw_output_experimental",
+    "compact_u8_producer_consumer_persisting_l2_total_experimental",
     "compact_u8_xw_u8_output_consumer_with_gpu_pack_pipeline_experimental",
     "compact_u8_xw_affine_half_output_experimental",
     "compact_u16_xw_affine_half_output_experimental",
@@ -109,6 +111,12 @@ VARIANT_COPY = {
         "fit": "Highest kernel-side throughput if downstream can consume compact two-value output.",
         "tone": "max",
     },
+    "compact_u8_producer_consumer_persisting_l2_total_experimental": {
+        "label": "L2-resident compact pipeline",
+        "track": "Extreme ABI",
+        "fit": "Producer and compact consumer run back-to-back with persisting L2; valuable only when custom ABI ownership is acceptable.",
+        "tone": "max",
+    },
     "vector4_affine_loaded_float_consumer_pipeline_experimental": {
         "label": "Float output + score pipeline",
         "track": "Pipeline",
@@ -128,6 +136,51 @@ VARIANT_COPY = {
         "tone": "neutral",
     },
 }
+
+CACHE_PLANNING_ROWS = (
+    (
+        "H100 / H200",
+        "~35 MiB",
+        "8 GPUs",
+        "15+ GPUs",
+        "L2 density is too small for this tactic at practical scale.",
+    ),
+    (
+        "RTX 6000 Ada / RTX 5090",
+        "~67 MiB",
+        "4 GPUs",
+        "8 GPUs",
+        "Good single-die cache, but still needs sharding for larger working sets.",
+    ),
+    (
+        "RTX Pro 6000 Blackwell",
+        "~90 MiB",
+        "3 GPUs",
+        "6 GPUs",
+        "Best fit among workstation-class NVIDIA parts in this planning model.",
+    ),
+    (
+        "B200",
+        "~180 MiB logical",
+        "2 GPUs",
+        "3 GPUs",
+        "Dual-die cache can work if the workload respects die locality.",
+    ),
+    (
+        "B300",
+        "~135 MiB",
+        "2 GPUs",
+        "4 GPUs",
+        "Comfortable for 256 MiB; larger sets still need sharding.",
+    ),
+    (
+        "MI300X / MI325X",
+        "~180 MiB",
+        "2 GPUs",
+        "3 GPUs",
+        "Infinity Cache gives similar density to the B200 planning case.",
+    ),
+)
 
 
 def read_json(path, default):
@@ -243,7 +296,33 @@ def fact_grid(rows):
     return '<div class="fact-grid">' + "".join(items) + "</div>"
 
 
-def variant_records(summary, baseline, space):
+def append_l2_records(records, l2_cache, strict_ms):
+    stats = l2_cache.get("variants", {}).get(
+        "compact_u8_producer_consumer_persisting_l2_total_experimental"
+    )
+    if not stats:
+        return
+    copy = VARIANT_COPY["compact_u8_producer_consumer_persisting_l2_total_experimental"]
+    records.append(
+        {
+            "name": "compact_u8_producer_consumer_persisting_l2_total_experimental",
+            "label": copy["label"],
+            "track": copy["track"],
+            "fit": copy["fit"],
+            "correct": bool(stats.get("correct")),
+            "time_ms": stats.get("median_ms"),
+            "speedup_strict": speedup(strict_ms, stats.get("median_ms")),
+            "speedup_row": None,
+            "traffic": stats.get("logical_bytes_per_launch"),
+            "bandwidth": stats.get("effective_bandwidth_gbps"),
+            "registers": None,
+            "spills": None,
+            "tone": copy["tone"],
+        }
+    )
+
+
+def variant_records(summary, baseline, space, l2_cache=None):
     strict_ms = baseline.get("time_ms")
     ptxas = space.get("ptxas", {}).get("variants", {})
     records = []
@@ -292,6 +371,8 @@ def variant_records(summary, baseline, space):
                 "tone": css_tone(name, correct),
             }
         )
+
+    append_l2_records(records, l2_cache or {}, strict_ms)
 
     return sorted(
         records,
@@ -442,6 +523,100 @@ def profiler_panel(space):
     return "".join(metric_card(label, value, note) for label, value, note in cards)
 
 
+def l2_latency_bars(l2_cache):
+    variants = l2_cache.get("variants", {})
+    bar_defs = (
+        (
+            "Thrashed consumer",
+            "consume_u8_after_l2_thrash_experimental",
+            "Cold path after a 256 MiB L2-thrashing pass",
+        ),
+        (
+            "Warm consumer",
+            "consume_u8_after_producer_warm_l2_experimental",
+            "Producer output is still resident",
+        ),
+        (
+            "Persisting consumer",
+            "consume_u8_after_persisting_l2_experimental",
+            "CUDA persisting-L2 window applied",
+        ),
+        (
+            "Persisting total",
+            "compact_u8_producer_consumer_persisting_l2_total_experimental",
+            "Producer plus compact consumer",
+        ),
+    )
+    values = [
+        (label, variants.get(name, {}).get("median_ms"), note)
+        for label, name, note in bar_defs
+        if variants.get(name, {}).get("median_ms") is not None
+    ]
+    if not values:
+        return '<p class="muted">No L2 residency timing was captured.</p>'
+
+    max_value = max(value for _, value, _ in values) or 1.0
+    rows = []
+    for label, value, note in values:
+        width = max(2.0, value / max_value * 100.0)
+        rows.append(
+            f"""
+            <div class="l2-bar">
+              <div><strong>{esc(label)}</strong><span>{esc(note)}</span></div>
+              <div class="l2-track"><i style="width: {width:.2f}%"></i></div>
+              <b>{fmt_ms(value)}</b>
+            </div>
+            """
+        )
+    return '<div class="l2-bars">' + "".join(rows) + "</div>"
+
+
+def l2_residency_section(l2_cache, strict_ms):
+    variants = l2_cache.get("variants", {})
+    config = l2_cache.get("config", {})
+    total = variants.get("compact_u8_producer_consumer_persisting_l2_total_experimental", {})
+    warm = variants.get("consume_u8_after_producer_warm_l2_experimental", {})
+    thrashed = variants.get("consume_u8_after_l2_thrash_experimental", {})
+    no_persist_total = variants.get("compact_u8_producer_consumer_total_experimental", {})
+    if not total:
+        return ""
+
+    warm_gain = speedup(thrashed.get("median_ms"), warm.get("median_ms"))
+    total_gain = speedup(no_persist_total.get("median_ms"), total.get("median_ms"))
+    strict_gain = speedup(strict_ms, total.get("median_ms"))
+    rows = [
+        [esc(gpu), esc(usable), esc(plan_256), esc(plan_512), esc(notes)]
+        for gpu, usable, plan_256, plan_512, notes in CACHE_PLANNING_ROWS
+    ]
+
+    return f"""
+  <section>
+    <h2>Extreme L2-Resident Path</h2>
+    <div class="two-col">
+      <div>
+        <h3>When a custom ABI is worth considering</h3>
+        <p>This path is aimed at latency-sensitive customers who can own the compact data contract, producer/consumer coupling, and maintenance burden. It is not the safe library default.</p>
+        <p class="muted">On this Blackwell host, the compact output is {fmt_mib(config.get('compact_output_bytes'))} and fits inside the configured persisting-L2 window. Keeping the compact producer and consumer adjacent cuts the measured producer-plus-consumer total to {fmt_ms(total.get('median_ms'))}, or {fmt_speedup(strict_gain)} against the original client baseline.</p>
+        {l2_latency_bars(l2_cache)}
+      </div>
+      <div>
+        {fact_grid([
+            ["Compact output footprint", fmt_mib(config.get("compact_output_bytes"))],
+            ["Measured L2 cache", fmt_mib(config.get("l2_cache_bytes"))],
+            ["Persisting-L2 budget", fmt_mib(config.get("persisting_l2_max_bytes"))],
+            ["Warm vs cold consumer", fmt_speedup(warm_gain)],
+            ["Persisting total lift", fmt_speedup(total_gain)],
+            ["Custom ABI fit", "HFT / ultra-low latency"],
+        ])}
+      </div>
+    </div>
+    <h3 class="section-subhead">Cache residency planning model</h3>
+    <p class="muted">Planning estimate only: assume about 70% of advertised cache is usable for resident working data, then verify on the target SKU. Aggregate cache helps only when the workload is partitioned so each GPU or die keeps its shard local.</p>
+    {render_table(["GPU family", "Usable cache estimate", "256 MiB working set", "512 MiB working set", "Readout"], rows, "compact-plan")}
+  </section>
+"""
+
+
 def hardware_summary(summary, hardware):
     smi = hardware.get("nvidia_smi", {})
     devices = smi.get("devices", [])
@@ -490,8 +665,9 @@ def build_html(output_dir):
     space = read_json(output_dir / "space.json", {})
     hardware = read_json(output_dir / "hardware.json", {})
     baseline = read_json(output_dir / "baseline.json", {})
+    l2_cache = read_json(output_dir / "l2_cache.json", {})
 
-    records = variant_records(summary, baseline, space)
+    records = variant_records(summary, baseline, space, l2_cache)
     by_name = {record["name"]: record for record in records}
     strict_ms = baseline.get("time_ms")
     row_stride = by_name.get("original_row_stride", {})
@@ -639,7 +815,7 @@ p {{ margin: 0 0 12px; }}
 .option-grid {{
   display: grid;
   gap: 14px;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(175px, 1fr));
 }}
 .option-card {{
   border: 1px solid var(--line);
@@ -734,6 +910,41 @@ p {{ margin: 0 0 12px; }}
 }}
 .mini-track i {{
   background: var(--nvidia);
+  display: block;
+  height: 100%;
+}}
+.section-subhead {{
+  margin-top: 22px;
+}}
+.l2-bars {{
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}}
+.l2-bar {{
+  align-items: center;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(170px, 250px) minmax(120px, 1fr) 86px;
+}}
+.l2-bar strong, .l2-bar span {{
+  display: block;
+}}
+.l2-bar span {{
+  color: var(--muted);
+  font-size: 0.84rem;
+}}
+.l2-bar b {{
+  text-align: right;
+}}
+.l2-track {{
+  background: #e6ece8;
+  border-radius: 999px;
+  height: 14px;
+  overflow: hidden;
+}}
+.l2-track i {{
+  background: linear-gradient(90deg, var(--cyan), var(--nvidia));
   display: block;
   height: 100%;
 }}
@@ -865,12 +1076,12 @@ code {{
   .hero {{ padding: 34px 0 28px; }}
   .hero-grid, .option-grid, .profiler-grid, .fact-grid {{ grid-template-columns: 1fr; }}
   section {{ padding: 18px; }}
-  .ladder-row, .mini-row {{
+  .ladder-row, .mini-row, .l2-bar {{
     align-items: start;
     grid-template-columns: 1fr;
     gap: 6px;
   }}
-  .ladder-value, .mini-row strong {{ text-align: left; }}
+  .ladder-value, .mini-row strong, .l2-bar b {{ text-align: left; }}
   table {{ min-width: 760px; }}
 }}
 </style>
@@ -941,6 +1152,8 @@ code {{
     <p class="muted">Sorted by speedup vs the original client baseline. Footprint combines data moved, register pressure, and spill status so the table stays decision-oriented.</p>
     {portfolio_table(records)}
   </section>
+
+  {l2_residency_section(l2_cache, strict_ms)}
 
   <section>
     <h2>Multi-GPU Outlook</h2>

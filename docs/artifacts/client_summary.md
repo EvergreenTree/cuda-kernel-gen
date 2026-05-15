@@ -35,6 +35,28 @@
 | Float output + score pipeline | yes | 0.5786 ms | 11.40x | 832.0 MiB |
 | Compact U8 output + score pipeline | yes | 0.2868 ms | 23.00x | 448.0 MiB |
 
+## Extreme L2-Resident Option
+
+| Item | Value |
+| --- | --- |
+| Persisting producer + consumer | 0.0463 ms |
+| Speedup vs strict baseline | 282.3x |
+| Warm consumer vs thrashed consumer | 2.7x |
+| Persisting total lift | 1.17x |
+| Compact output footprint | 32.0 MiB |
+| L2 budget on this host | 80.0 MiB |
+
+This option is for latency-sensitive customers who can own a custom compact ABI and keep producer/consumer stages adjacent. It is not the drop-in library default.
+
+| GPU family | Usable cache estimate | 256 MiB working set | 512 MiB working set |
+| --- | --- | --- | --- |
+| H100 / H200 | ~35 MiB | 8 GPUs | 15+ GPUs |
+| RTX 6000 Ada / RTX 5090 | ~67 MiB | 4 GPUs | 8 GPUs |
+| RTX Pro 6000 Blackwell | ~90 MiB | 3 GPUs | 6 GPUs |
+| B200 | ~180 MiB logical | 2 GPUs | 3 GPUs |
+| B300 | ~135 MiB | 2 GPUs | 4 GPUs |
+| MI300X / MI325X | ~180 MiB | 2 GPUs | 3 GPUs |
+
 ## Profiler Status
 
 | Artifact | Status |

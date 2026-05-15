@@ -2,9 +2,9 @@
 
 [🌐 Published report](https://evergreentree.github.io/cuda-kernel-gen/) ·
 [🧾 Local HTML report](docs/index.html) ·
-[🧪 B300 run HTML artifact](reports/client-b300-fused-score/index.html) ·
 [📄 PDF report](docs/cuda-kernel-performance-report.pdf) ·
-[📝 Markdown summary](docs/artifacts/client_summary.md)
+[📝 Markdown summary](docs/artifacts/client_summary.md) ·
+[🛠️ Build your own report](#universal-machine-workflow)
 
 - Deliver a CUDA implementation that preserves the benchmark correctness
   contract while making the performance/correctness tradeoffs explicit.
@@ -586,47 +586,67 @@ directories:
 
 ## Universal Machine Workflow
 
-The completed Blackwell checklist has been retired because its facts now live in
-the scoreboard or Experiment Ledger above. Treat this workflow as the product
-path for any target machine: workstation, server, cloud GPU, or future
-architecture.
+Use this workflow to turn the toolchain into a hardware-specific client report
+on any CUDA machine. The checked-in
+[B300 report artifact](reports/client-b300-fused-score/index.html) is an example
+of a generated `REPORT_DIR` output; it currently matches `docs/index.html`
+because the published report is copied from that same run. For a new machine,
+capture a new report directory and publish from that directory instead of
+editing the HTML by hand.
 
-1. Generate the target-machine report.
-   Run `make client-report NCU_PREFIX=sudo`. Preserve the generated
-   `client_summary.md`, `index.html`, `summary.json`, `space.json`, and
-   `hardware.json` before changing code.
+1. Capture the target machine.
 
-2. Classify the bottleneck from evidence.
-   Use `client_summary.md` for the client-facing readout and `hardware.json` /
-   `space.json` for details. If the target is memory-throughput bound, focus on
-   byte/sector reduction. If it becomes compute-, SFU-, occupancy-, or
-   launch-sensitive, reopen only the matching ledger rows.
+   ```bash
+   make client-report NCU_PREFIX=sudo
+   ```
 
-3. Keep data-contract decisions explicit.
-   Treat the float in/out vector kernel as the semantic-preserving baseline.
-   Treat FP16 output, compact U8 input/output, and compact downstream consumers
-   as separate data-contract tracks with their own result rows.
+   This writes a timestamped `reports/client-<host>-<utc>/` directory with
+   `index.html`, `client_summary.md`, `summary.json`, `baseline.json`,
+   `space.json`, and `hardware.json`. Omit `NCU_PREFIX=sudo` when the current
+   user already has profiler-counter access.
 
-4. Re-test the compact consumer path early.
-   On Blackwell, custom U8 output only paid off when the next stage consumed
-   compact `x/w` directly. Re-measure the float projection, compact projection,
-   float pipeline, and setup-paid compact pipeline before recommending that
-   data contract on any target.
+2. Add optional boundary artifacts for the same `REPORT_DIR`.
 
-5. Add one target-machine results section.
-   Do not overwrite the Blackwell table. Add a new concise scoreboard plus any
-   new ledger rows, and record whether each old conclusion held, flipped, or was
-   not applicable.
+   ```bash
+   make pipeline-report REPORT_DIR=<that-dir>
+   make l2-report REPORT_DIR=<that-dir>
+   make error-report REPORT_DIR=<that-dir>
+   ```
 
-6. Automate before repeating manual analysis.
-   If a step will be reused on multiple machines, add or extend a Make target or
-   `tools/` script before documenting it as a manual runbook step.
+   Run only the passes that matter for the client decision. The report renderer
+   is hardware-adaptive: missing artifacts stay absent or contextual rather than
+   becoming inferred claims.
 
-7. Gate larger engineering work on evidence.
+3. Publish the captured run.
+
+   ```bash
+   make client-summary REPORT_DIR=<that-dir>
+   make publish-report REPORT_DIR=<that-dir>
+   make pdf-report
+   ```
+
+   `publish-report` copies the generated HTML and artifacts into `docs/`, and
+   `pdf-report` renders the PDF from `docs/index.html`.
+
+4. Interpret the result by adoption track.
+
+   Keep the float in/out vector kernel as the semantic-preserving drop-in
+   answer. Treat FP16 output, compact U8 storage, fused score production, and
+   compact L2 residency as separate data-contract choices. Each one should keep
+   its own timing row, correctness status, and customer action.
+
+5. Update the durable record.
+
+   Add a concise target-machine scoreboard and any new Experiment Ledger rows
+   before using the result in client guidance. If a step will be reused across
+   machines, add or extend a Make target or `tools/` script instead of relying
+   on a manual runbook.
+
+6. Gate larger engineering work on measured need.
+
    Implement multi-GPU row partitioning only on a multi-GPU host with capacity
    pressure or throughput goals. Revisit Tensor Cores, TMA, or `cp.async` only
-   if the problem formulation changes enough to create matrix-shaped work or
-   reusable tiles.
+   if the problem formulation creates matrix-shaped work or reusable tiles.
 
 ## Iteration Tips
 

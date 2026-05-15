@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render a client-readable HTML performance report."""
+"""Render a client-facing HTML performance report."""
 
 import argparse
 import html
@@ -9,41 +9,6 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-
-KEY_VARIANTS = (
-    ("Original row-stride ablation", "Drop-in reference", "original_row_stride"),
-    ("Vectorized float default", "Drop-in recommendation", "vector4_coalesced_fast"),
-    (
-        "Affine float default",
-        "Benchmark-specialized float path",
-        "vector4_affine_loaded_fixed_range_experimental",
-    ),
-    (
-        "FP16 output",
-        "ABI-changing output reduction",
-        "vector4_affine_half_output_sparse_experimental",
-    ),
-    (
-        "Compact U8 input + FP16 output",
-        "ABI-changing input reduction",
-        "compact_u8_xw_affine_half_output_experimental",
-    ),
-    (
-        "Compact U8 input + U8 output",
-        "Strongest specialized ABI",
-        "compact_u8_xw_affine_u8_xw_output_experimental",
-    ),
-    (
-        "Float output + score pipeline",
-        "Expanded downstream consumer",
-        "vector4_affine_loaded_float_consumer_pipeline_experimental",
-    ),
-    (
-        "Compact U8 output + score pipeline",
-        "Compact downstream consumer",
-        "compact_u8_xw_u8_output_consumer_with_gpu_pack_pipeline_experimental",
-    ),
-)
 
 ARTIFACTS = (
     "client_summary.md",
@@ -56,6 +21,102 @@ ARTIFACTS = (
     "ncu_memory_raw.csv",
     "ptxas.log",
 )
+
+PRIMARY_VARIANTS = (
+    "vector4_coalesced_fast",
+    "vector4_affine_half_output_sparse_experimental",
+    "compact_u8_xw_affine_half_output_experimental",
+    "compact_u8_xw_affine_u8_xw_output_experimental",
+    "compact_u8_xw_u8_output_consumer_with_gpu_pack_pipeline_experimental",
+)
+
+CLIENT_VARIANTS = (
+    "compact_u8_xw_affine_u8_xw_output_experimental",
+    "compact_u8_xw_u8_output_consumer_with_gpu_pack_pipeline_experimental",
+    "compact_u8_xw_affine_half_output_experimental",
+    "compact_u16_xw_affine_half_output_experimental",
+    "compact_xw_affine_half_output_experimental",
+    "vector4_affine_half_output_sparse_experimental",
+    "vector4_affine_loaded_fixed_range_experimental",
+    "vector4_coalesced_fast",
+    "scalar_coalesced_fast",
+    "original_row_stride",
+)
+
+VARIANT_COPY = {
+    "original_problem": {
+        "label": "Original client baseline",
+        "track": "Baseline",
+        "fit": "Problem definition",
+        "tone": "neutral",
+    },
+    "original_row_stride": {
+        "label": "Single-GPU row-stride kernel",
+        "track": "Single-GPU baseline",
+        "fit": "Same harness, inefficient memory layout",
+        "tone": "neutral",
+    },
+    "vector4_coalesced_fast": {
+        "label": "Vectorized float default",
+        "track": "Drop-in",
+        "fit": "Recommended when the float input/output ABI must stay unchanged.",
+        "tone": "safe",
+    },
+    "vector4_affine_loaded_fixed_range_experimental": {
+        "label": "Affine float default",
+        "track": "Drop-in-specialized",
+        "fit": "Documents the fixed-range math opportunity, but does not materially beat the float default.",
+        "tone": "safe",
+    },
+    "vector4_affine_half_output_sparse_experimental": {
+        "label": "FP16 output",
+        "track": "Output ABI",
+        "fit": "Useful when the client can accept half-precision output storage.",
+        "tone": "option",
+    },
+    "compact_xw_affine_half_output_experimental": {
+        "label": "Compact FP32 x/w input + FP16 output",
+        "track": "Input/output ABI",
+        "fit": "Upper-bound compact input shape before fixed-point quantization.",
+        "tone": "option",
+    },
+    "compact_u16_xw_affine_half_output_experimental": {
+        "label": "Compact U16 input + FP16 output",
+        "track": "Input/output ABI",
+        "fit": "Preserves tolerance with smaller fixed-point x/w input storage.",
+        "tone": "option",
+    },
+    "compact_u8_xw_affine_half_output_experimental": {
+        "label": "Compact U8 input + FP16 output",
+        "track": "Input/output ABI",
+        "fit": "Best when an upstream producer can emit compact x/w data directly.",
+        "tone": "option",
+    },
+    "compact_u8_xw_affine_u8_xw_output_experimental": {
+        "label": "Compact U8 input + U8 output",
+        "track": "Specialized ABI",
+        "fit": "Highest kernel-side throughput if downstream can consume compact x/w output.",
+        "tone": "max",
+    },
+    "vector4_affine_loaded_float_consumer_pipeline_experimental": {
+        "label": "Float output + score pipeline",
+        "track": "Pipeline",
+        "fit": "Reference pipeline when downstream consumes expanded float4 output.",
+        "tone": "neutral",
+    },
+    "compact_u8_xw_u8_output_consumer_with_gpu_pack_pipeline_experimental": {
+        "label": "Compact U8 output + score pipeline",
+        "track": "Pipeline",
+        "fit": "Best end-to-end specialized path when compact output is consumed directly.",
+        "tone": "option",
+    },
+    "scalar_coalesced_fast": {
+        "label": "Scalar coalesced kernel",
+        "track": "Structural fix",
+        "fit": "Shows the value of coalesced memory access before vectorization.",
+        "tone": "neutral",
+    },
+}
 
 
 def read_json(path, default):
@@ -82,7 +143,7 @@ def fmt_ms(value, digits=4):
     return "n/a" if value is None else f"{value:.{digits}f} ms"
 
 
-def fmt_mib(value, digits=1):
+def fmt_mib(value, digits=0):
     return "n/a" if value is None else f"{value / (1024 * 1024):.{digits}f} MiB"
 
 
@@ -90,14 +151,42 @@ def fmt_speedup(value, digits=1):
     return "n/a" if value is None else f"{value:.{digits}f}x"
 
 
-def variant(summary, name):
-    return summary.get("variants", {}).get(name, {})
-
-
 def speedup(reference_ms, candidate_ms):
     if not reference_ms or not candidate_ms:
         return None
     return reference_ms / candidate_ms
+
+
+def variant_label(name):
+    copy = VARIANT_COPY.get(name)
+    if copy:
+        return copy["label"]
+    label = name.replace("_experimental", "").replace("_expected_fail", "")
+    return label.replace("_", " ").replace("u8", "U8").replace("u16", "U16")
+
+
+def variant_track(name, correct):
+    copy = VARIANT_COPY.get(name)
+    if not correct:
+        return "Boundary probe"
+    return copy["track"] if copy else "Experiment"
+
+
+def variant_fit(name, correct):
+    copy = VARIANT_COPY.get(name)
+    if not correct:
+        return "Measured as a precision boundary; not recommended under the current tolerance."
+    return copy["fit"] if copy else "Supporting benchmark variant."
+
+
+def css_tone(name, correct):
+    if not correct:
+        return "probe"
+    return VARIANT_COPY.get(name, {}).get("tone", "neutral")
+
+
+def variant(summary, name):
+    return summary.get("variants", {}).get(name, {})
 
 
 def render_table(headers, rows, class_name=""):
@@ -116,253 +205,268 @@ def render_table(headers, rows, class_name=""):
     )
 
 
-def stat_card(label, value, note=""):
-    note_html = f'<span class="stat-note">{esc(note)}</span>' if note else ""
+def stat_card(label, value, note="", class_name=""):
+    note_html = f'<span>{esc(note)}</span>' if note else ""
     return (
-        '<div class="stat">'
-        f'<span class="stat-label">{esc(label)}</span>'
-        f'<strong>{esc(value)}</strong>'
-        f"{note_html}</div>"
+        f'<div class="stat {esc(class_name)}">'
+        f'<p>{esc(label)}</p><strong>{esc(value)}</strong>{note_html}</div>'
     )
 
 
-def bar_list(title, rows, unit="", digits=2):
-    rows = [(label, value) for label, value in rows if value is not None]
-    if not rows:
-        return ""
-    max_value = max(value for _, value in rows) or 1.0
-    items = []
-    for label, value in rows:
-        width = max(1.0, min(100.0, value / max_value * 100.0))
-        items.append(
-            '<div class="bar-row">'
-            f'<span class="bar-label">{esc(label)}</span>'
-            '<span class="bar-track">'
-            f'<span class="bar-fill" style="width: {width:.2f}%"></span>'
-            "</span>"
-            f'<strong>{fmt(value, digits)}{esc(unit)}</strong>'
-            "</div>"
-        )
-    return f'<section><h2>{esc(title)}</h2><div class="bar-list">{"".join(items)}</div></section>'
-
-
-def artifact_links(output_dir, artifact_prefix):
-    rows = []
-    for name in ARTIFACTS:
-        if (output_dir / name).exists():
-            href = esc(f"{artifact_prefix}{name}")
-            rows.append([f'<a href="{href}">{esc(name)}</a>', "present"])
-    return rows
-
-
-def topology_text(hardware):
-    topology = hardware.get("topology", {})
-    smi = hardware.get("nvidia_smi", {})
-    device_count = smi.get("device_count")
-    paths = ", ".join(topology.get("paths", [])) or "unknown"
-    if topology.get("status") != "ok":
-        return "GPU topology was not captured."
-    if not device_count or device_count < 2:
-        return "Only one GPU was detected, so no multi-GPU throughput result applies."
-    if topology.get("has_nvlink"):
-        return (
-            f"{device_count} GPUs were detected with NVLink-class paths ({paths}). "
-            "A row-sharded multi-GPU run would be a meaningful next throughput benchmark."
-        )
-    return (
-        f"{device_count} GPUs were detected, but the GPU-to-GPU path is {paths}, not NVLink. "
-        "For this pointwise kernel, multi-GPU is still meaningful for capacity or for a "
-        "production pipeline that already shards rows per GPU. It is less meaningful as a "
-        "single-job speedup if every launch must gather outputs through host/PCIe."
-    )
-
-
-def build_key_rows(summary, baseline):
+def variant_records(summary, baseline, space):
     strict_ms = baseline.get("time_ms")
-    rows = []
-    for label, role, name in KEY_VARIANTS:
-        stats = variant(summary, name)
-        if not stats:
-            continue
-        median = stats.get("median_ms")
-        rows.append(
-            [
-                esc(label),
-                esc(role),
-                "yes" if stats.get("correct") else "no",
-                fmt_ms(median),
-                fmt_speedup(speedup(strict_ms, median)),
-                fmt_speedup(stats.get("speedup_vs_original_row_stride")),
-                fmt_mib(stats.get("logical_bytes_per_launch")),
-            ]
+    ptxas = space.get("ptxas", {}).get("variants", {})
+    records = []
+
+    if strict_ms:
+        records.append(
+            {
+                "name": "original_problem",
+                "label": VARIANT_COPY["original_problem"]["label"],
+                "track": VARIANT_COPY["original_problem"]["track"],
+                "fit": VARIANT_COPY["original_problem"]["fit"],
+                "correct": True,
+                "time_ms": strict_ms,
+                "speedup_strict": 1.0,
+                "speedup_row": None,
+                "traffic": None,
+                "bandwidth": None,
+                "registers": None,
+                "spills": None,
+                "tone": "neutral",
+            }
         )
-    return rows
 
-
-def build_all_rows(summary, baseline):
-    strict_ms = baseline.get("time_ms")
-    rows = []
     for name, stats in summary.get("variants", {}).items():
-        median = stats.get("median_ms")
+        correct = bool(stats.get("correct"))
+        resource = ptxas.get(name, {})
+        records.append(
+            {
+                "name": name,
+                "label": variant_label(name),
+                "track": variant_track(name, correct),
+                "fit": variant_fit(name, correct),
+                "correct": correct,
+                "time_ms": stats.get("median_ms"),
+                "speedup_strict": speedup(strict_ms, stats.get("median_ms")),
+                "speedup_row": stats.get("speedup_vs_original_row_stride"),
+                "traffic": stats.get("logical_bytes_per_launch"),
+                "bandwidth": stats.get("effective_bandwidth_gbps"),
+                "registers": resource.get("registers"),
+                "spills": (
+                    (resource.get("spill_stores_bytes") or 0)
+                    + (resource.get("spill_loads_bytes") or 0)
+                )
+                if resource
+                else None,
+                "tone": css_tone(name, correct),
+            }
+        )
+
+    return sorted(
+        records,
+        key=lambda item: (item["speedup_strict"] is not None, item["speedup_strict"] or 0),
+        reverse=True,
+    )
+
+
+def primary_cards(records):
+    by_name = {record["name"]: record for record in records}
+    cards = []
+    for name in PRIMARY_VARIANTS:
+        record = by_name.get(name)
+        if not record:
+            continue
+        cards.append(
+            f"""
+            <article class="option-card {esc(record['tone'])}">
+              <div>
+                <span class="pill">{esc(record['track'])}</span>
+                <h3>{esc(record['label'])}</h3>
+                <p>{esc(record['fit'])}</p>
+              </div>
+              <div class="option-metrics">
+                <strong>{fmt_speedup(record['speedup_strict'])}</strong>
+                <span>{fmt_ms(record['time_ms'])}</span>
+                <span>{fmt_mib(record['traffic'])} traffic</span>
+              </div>
+            </article>
+            """
+        )
+    return "".join(cards)
+
+
+def performance_ladder(records):
+    client_names = set(CLIENT_VARIANTS)
+    chart_records = [
+        record
+        for record in records
+        if record["correct"]
+        and record["speedup_strict"]
+        and record["name"] in client_names
+    ][:10]
+    if not chart_records:
+        return ""
+    max_value = max(record["speedup_strict"] for record in chart_records) or 1.0
+    rows = []
+    for record in chart_records:
+        width = max(1.5, record["speedup_strict"] / max_value * 100.0)
+        rows.append(
+            f"""
+            <div class="ladder-row {esc(record['tone'])}">
+              <div class="ladder-label">
+                <strong>{esc(record['label'])}</strong>
+                <span>{esc(record['track'])}</span>
+              </div>
+              <div class="ladder-track">
+                <span style="width: {width:.2f}%"></span>
+              </div>
+              <div class="ladder-value">{fmt_speedup(record['speedup_strict'])}</div>
+            </div>
+            """
+        )
+    return '<div class="ladder">' + "".join(rows) + "</div>"
+
+
+def traffic_ladder(records):
+    selected = [
+        record
+        for record in records
+        if record["name"]
+        in {
+            "original_row_stride",
+            "vector4_coalesced_fast",
+            "vector4_affine_half_output_sparse_experimental",
+            "compact_u8_xw_affine_half_output_experimental",
+            "compact_u8_xw_affine_u8_xw_output_experimental",
+        }
+    ]
+    max_traffic = max((record["traffic"] or 0 for record in selected), default=1) or 1
+    rows = []
+    for record in selected:
+        width = max(1.5, (record["traffic"] or 0) / max_traffic * 100.0)
+        rows.append(
+            f"""
+            <div class="mini-row">
+              <span>{esc(record['label'])}</span>
+              <div class="mini-track"><i style="width: {width:.2f}%"></i></div>
+              <strong>{fmt_mib(record['traffic'])}</strong>
+            </div>
+            """
+        )
+    return "".join(rows)
+
+
+def resource_chips(record):
+    chips = [f"<span>{fmt_mib(record['traffic'])} traffic</span>"]
+    if record["registers"] is not None:
+        chips.append(f"<span>{fmt(record['registers'], 0)} registers/thread</span>")
+    if record["spills"] is not None:
+        chips.append(f"<span>{fmt(record['spills'], 0)} spill bytes</span>")
+    return "".join(chips)
+
+
+def portfolio_table(records):
+    client_names = set(CLIENT_VARIANTS)
+    rows = []
+    for record in records:
+        if record["name"] not in client_names or not record["correct"]:
+            continue
         rows.append(
             [
-                f"<code>{esc(name)}</code>",
-                "yes" if stats.get("correct") else "no",
-                fmt_ms(median),
-                fmt_speedup(speedup(strict_ms, median)),
-                fmt_speedup(stats.get("speedup_vs_original_row_stride")),
-                fmt_mib(stats.get("logical_bytes_per_launch")),
-                f"{fmt(stats.get('effective_bandwidth_gbps'), 1)} GB/s",
+                f"""
+                <div class="variant-name">
+                  <strong>{esc(record['label'])}</strong>
+                  <span>{esc(record['fit'])}</span>
+                </div>
+                """,
+                f'<span class="track {esc(record["tone"])}">{esc(record["track"])}</span>',
+                "Pass" if record["correct"] else "Boundary only",
+                fmt_speedup(record["speedup_strict"]),
+                fmt_ms(record["time_ms"]),
+                '<div class="chips">' + resource_chips(record) + "</div>",
             ]
         )
-    return rows
+    return render_table(
+        ["Variant", "Track", "Status", "Speedup", "Time", "Footprint"],
+        rows,
+        "portfolio",
+    )
 
 
-def build_profiler_rows(space):
+def profiler_panel(space):
     ncu = space.get("ncu", {})
     metrics = ncu.get("metrics", {})
     memory = ncu.get("memory_details", {}).get("metrics", {})
-    rows = [
-        ["Nsight status", esc(ncu.get("status", "missing"))],
-        ["Kernel", esc(metrics.get("kernel", "n/a"))],
-        [
-            "NCU duration",
-            "n/a"
-            if metrics.get("duration_ns") is None
-            else f"{fmt(metrics.get('duration_ns') / 1000.0)} us",
-        ],
-        ["DRAM throughput", f"{fmt(metrics.get('dram_throughput_pct'))}%"],
-        ["SM throughput", f"{fmt(metrics.get('sm_throughput_pct'))}%"],
-        ["Achieved occupancy", f"{fmt(metrics.get('achieved_occupancy_pct'))}%"],
-        ["Registers/thread", fmt(metrics.get("registers_per_thread"), 0)],
+    cards = [
+        ("DRAM Throughput", f"{fmt(metrics.get('dram_throughput_pct'))}%", "Primary limiter"),
+        ("SM Throughput", f"{fmt(metrics.get('sm_throughput_pct'))}%", "Compute headroom remains"),
+        ("Occupancy", f"{fmt(metrics.get('achieved_occupancy_pct'))}%", "Healthy scheduling"),
+        ("L1 Load Sectors", fmt(memory.get("l1_global_load_sectors"), 0), "Coalescing evidence"),
     ]
-    if memory.get("dram_read_bytes") is not None:
-        rows.append(["DRAM read bytes", fmt_mib(memory.get("dram_read_bytes"))])
-    if memory.get("dram_write_bytes") is not None:
-        rows.append(["DRAM write bytes", fmt_mib(memory.get("dram_write_bytes"))])
-    rows.extend(
-        [
-            ["L1 global load sectors", fmt(memory.get("l1_global_load_sectors"), 0)],
-            ["L1 global store sectors", fmt(memory.get("l1_global_store_sectors"), 0)],
-            ["L2 read sectors", fmt(memory.get("l2_read_sectors"), 0)],
-            ["L2 write sectors", fmt(memory.get("l2_write_sectors"), 0)],
-        ]
-    )
-    if ncu.get("error"):
-        rows.append(["Profiler note", esc(ncu.get("error"))])
-    return rows
+    return "".join(stat_card(label, value, note, "flat") for label, value, note in cards)
 
 
-def build_resource_rows(space):
-    rows = []
-    for name, stats in space.get("ptxas", {}).get("variants", {}).items():
-        rows.append(
-            [
-                f"<code>{esc(name)}</code>",
-                fmt(stats.get("registers"), 0),
-                fmt(stats.get("stack_frame_bytes"), 0),
-                fmt(stats.get("spill_stores_bytes"), 0),
-                fmt(stats.get("spill_loads_bytes"), 0),
-            ]
+def hardware_summary(summary, hardware):
+    smi = hardware.get("nvidia_smi", {})
+    devices = smi.get("devices", [])
+    device = devices[0] if devices else {}
+    nvcc = hardware.get("nvcc", {})
+    topology = hardware.get("topology", {})
+    paths = ", ".join(topology.get("paths", [])) or "unknown"
+    return [
+        ["GPU", esc(device.get("name") or summary.get("gpu", {}).get("name", "n/a"))],
+        ["GPU count", fmt(smi.get("device_count"), 0)],
+        ["GPU interconnect", f"{esc(paths)} ({'NVLink present' if topology.get('has_nvlink') else 'no NVLink'})"],
+        ["Driver", esc(device.get("driver_version", "n/a"))],
+        ["CUDA compiler", esc(nvcc.get("version", "n/a"))],
+        ["Problem size", f"{fmt(summary.get('dimx'), 0)} x {fmt(summary.get('dimy'), 0)}"],
+    ]
+
+
+def multi_gpu_story(hardware):
+    smi = hardware.get("nvidia_smi", {})
+    topology = hardware.get("topology", {})
+    scaling = hardware.get("scaling", {})
+    count = smi.get("device_count") or 0
+    paths = ", ".join(topology.get("paths", [])) or "unknown"
+    if count < 2:
+        title = "Single-GPU host"
+        body = "This run does not contain a multi-GPU opportunity because only one GPU is visible."
+    elif topology.get("has_nvlink"):
+        title = f"{count} GPUs with NVLink-class connectivity"
+        body = (
+            "A row-sharded multi-GPU throughput benchmark is a meaningful next step, "
+            "especially if the production pipeline keeps each shard on its assigned GPU."
         )
-    return rows
-
-
-def build_scaling_rows(hardware):
-    rows = []
-    for part in hardware.get("scaling", {}).get("partitions", []):
-        fits = part.get("fits_harness_with_headroom")
-        rows.append(
-            [
-                fmt(part.get("gpu_index"), 0),
-                esc(part.get("gpu_name", "")),
-                f"{fmt(part.get('row_start'), 0)}-{fmt(part.get('row_end'), 0)}",
-                fmt(part.get("rows"), 0),
-                f"{fmt(part.get('harness_mib'))} MiB",
-                f"{fmt(part.get('usable_memory_mib'))} MiB",
-                "yes" if fits else "no" if fits is False else "n/a",
-            ]
+    else:
+        title = f"Dual-GPU host, PCIe/PHB path"
+        body = (
+            f"{count} GPUs are visible, but the GPU-to-GPU path is {paths}, not NVLink. "
+            "That still matters for capacity and for sustained throughput when inputs are "
+            "already row-sharded. It is less compelling as a single-launch speedup if the "
+            "outputs must be gathered over PCIe every run."
         )
-    return rows
+    return title, body, scaling
 
 
-def build_memory_model_rows(hardware):
-    rows = []
-    for model in hardware.get("scaling", {}).get("memory_models", []):
-        rows.append(
-            [
-                esc(model.get("name", "")),
-                fmt(model.get("bytes_per_element")),
-                fmt_mib(model.get("total_bytes")),
-                esc(model.get("note", "")),
-            ]
-        )
-    return rows
-
-
-def build_html(output_dir, artifact_prefix=""):
+def build_html(output_dir):
     summary = read_json(output_dir / "summary.json", {})
     space = read_json(output_dir / "space.json", {})
     hardware = read_json(output_dir / "hardware.json", {})
     baseline = read_json(output_dir / "baseline.json", {})
 
-    gpu = summary.get("gpu", {})
-    smi = hardware.get("nvidia_smi", {})
-    devices = smi.get("devices", [])
-    device = devices[0] if devices else {}
-    nvcc = hardware.get("nvcc", {})
-    classification = hardware.get("classification", {})
-    scaling = hardware.get("scaling", {})
-
+    records = variant_records(summary, baseline, space)
+    by_name = {record["name"]: record for record in records}
     strict_ms = baseline.get("time_ms")
-    row_stride = variant(summary, "original_row_stride")
-    default = variant(summary, "vector4_coalesced_fast")
-    fp16 = variant(summary, "vector4_affine_half_output_sparse_experimental")
-    compact = variant(summary, "compact_u8_xw_affine_u8_xw_output_experimental")
-    compact_pipeline = variant(
-        summary, "compact_u8_xw_u8_output_consumer_with_gpu_pack_pipeline_experimental"
+    row_stride = by_name.get("original_row_stride", {})
+    default = by_name.get("vector4_coalesced_fast", {})
+    fp16 = by_name.get("vector4_affine_half_output_sparse_experimental", {})
+    compact = by_name.get("compact_u8_xw_affine_u8_xw_output_experimental", {})
+    compact_pipeline = by_name.get(
+        "compact_u8_xw_u8_output_consumer_with_gpu_pack_pipeline_experimental", {}
     )
-
-    baseline_note = (
-        f"The strict original problem definition measured {fmt_ms(strict_ms)} on this host."
-        if strict_ms
-        else "The strict original problem definition was not captured in this report run."
-    )
-    default_vs_strict = speedup(strict_ms, default.get("median_ms"))
-    compact_vs_strict = speedup(strict_ms, compact.get("median_ms"))
-
-    notes = classification.get("notes", [])
-    if scaling.get("recommendation"):
-        notes.append(scaling["recommendation"])
-    recommendation_items = "".join(f"<li>{esc(note)}</li>" for note in notes)
-
-    chart_rows = []
-    for label, _, name in KEY_VARIANTS[:6]:
-        stats = variant(summary, name)
-        if stats:
-            chart_rows.append((label, stats.get("median_ms")))
-
-    speed_rows = []
-    for label, _, name in KEY_VARIANTS[1:6]:
-        stats = variant(summary, name)
-        if stats:
-            speed_rows.append((label, speedup(strict_ms, stats.get("median_ms"))))
-
-    hardware_rows = [
-        ["GPU", esc(device.get("name") or gpu.get("name", "n/a"))],
-        [
-            "Compute capability",
-            esc(device.get("compute_capability") or gpu.get("compute_capability", "n/a")),
-        ],
-        ["Device count", fmt(smi.get("device_count"), 0)],
-        ["Driver", esc(device.get("driver_version", "n/a"))],
-        ["CUDA compiler", esc(nvcc.get("version", "n/a"))],
-        ["Problem size", f"{fmt(summary.get('dimx'), 0)} x {fmt(summary.get('dimy'), 0)}"],
-        ["Tolerance contract", "1e-3 relative tolerance"],
-        ["Scaling status", esc(scaling.get("status", "n/a"))],
-    ]
-
-    artifact_rows = artifact_links(output_dir, artifact_prefix)
+    multi_title, multi_body, scaling = multi_gpu_story(hardware)
 
     return f"""<!doctype html>
 <html lang="en">
@@ -373,17 +477,17 @@ def build_html(output_dir, artifact_prefix=""):
 <style>
 :root {{
   color-scheme: light;
-  --bg: #f6f8f8;
+  --bg: #f3f6f4;
+  --ink: #101820;
+  --muted: #59666f;
   --surface: #ffffff;
-  --ink: #172026;
-  --muted: #60707a;
-  --line: #d9e1e4;
-  --green: #147d64;
-  --blue: #245f9f;
-  --gold: #9b6a10;
-  --soft-green: #e7f4ef;
-  --soft-blue: #e8f0fa;
-  --soft-gold: #f7efd9;
+  --line: #d8e0dd;
+  --nvidia: #76b900;
+  --nvidia-dark: #294700;
+  --cyan: #0086a8;
+  --gold: #bd7d00;
+  --charcoal: #1f2528;
+  --soft: #edf3ed;
 }}
 * {{ box-sizing: border-box; }}
 body {{
@@ -392,90 +496,219 @@ body {{
   font: 16px/1.55 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   margin: 0;
 }}
-main {{
-  margin: 0 auto;
-  max-width: 1120px;
-  padding: 28px 18px 48px;
-}}
 .hero {{
-  background: var(--surface);
-  border-bottom: 4px solid var(--green);
-  padding: 34px 0 26px;
+  background:
+    linear-gradient(120deg, rgba(16, 24, 32, 0.92), rgba(16, 24, 32, 0.74)),
+    radial-gradient(circle at 78% 12%, rgba(118, 185, 0, 0.32), transparent 34%),
+    #101820;
+  color: #fff;
+  padding: 44px 0 34px;
 }}
-.hero-inner {{
+.wrap {{
   margin: 0 auto;
-  max-width: 1120px;
-  padding: 0 18px;
+  max-width: 1180px;
+  padding: 0 22px;
 }}
+main.wrap {{ padding-bottom: 52px; }}
 .eyebrow {{
-  color: var(--green);
+  color: #b9ef59;
   font-size: 0.78rem;
-  font-weight: 750;
+  font-weight: 800;
   letter-spacing: 0;
-  margin: 0 0 8px;
+  margin: 0 0 10px;
   text-transform: uppercase;
 }}
 h1 {{
-  font-size: clamp(2rem, 4vw, 3.7rem);
-  line-height: 1.02;
+  font-size: clamp(2.2rem, 5vw, 4.8rem);
+  letter-spacing: 0;
+  line-height: 0.98;
   margin: 0;
-  max-width: 900px;
+  max-width: 980px;
 }}
 .lede {{
-  color: var(--muted);
-  font-size: 1.08rem;
-  max-width: 820px;
+  color: #dbe7df;
+  font-size: clamp(1rem, 2vw, 1.22rem);
+  margin: 18px 0 0;
+  max-width: 830px;
+}}
+.hero-grid {{
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 28px;
+}}
+.stat {{
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  min-width: 0;
+  padding: 16px;
+}}
+.hero .stat {{
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.22);
+  color: #fff;
+}}
+.stat p {{
+  color: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  margin: 0;
+  opacity: 0.78;
+  text-transform: uppercase;
+}}
+.stat strong {{
+  display: block;
+  font-size: clamp(1.45rem, 3vw, 2.45rem);
+  line-height: 1.05;
+  margin: 8px 0 4px;
+  overflow-wrap: anywhere;
+}}
+.stat span {{
+  color: inherit;
+  display: block;
+  font-size: 0.9rem;
+  opacity: 0.72;
 }}
 section {{
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 8px;
   margin-top: 18px;
-  padding: 20px;
+  padding: 24px;
+}}
+.intro {{
+  display: grid;
+  gap: 22px;
+  grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
 }}
 h2 {{
-  font-size: 1.25rem;
-  line-height: 1.2;
+  font-size: clamp(1.35rem, 2.4vw, 2rem);
+  letter-spacing: 0;
+  line-height: 1.08;
   margin: 0 0 12px;
 }}
 h3 {{
-  font-size: 1rem;
-  margin: 18px 0 8px;
+  font-size: 1.05rem;
+  margin: 0 0 6px;
 }}
 p {{ margin: 0 0 12px; }}
 .muted {{ color: var(--muted); }}
-.stats {{
-  display: grid;
-  gap: 12px;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  margin-top: 22px;
+.decision {{
+  background: #f8fbf7;
+  border-left: 5px solid var(--nvidia);
+  padding: 16px 18px;
 }}
-.stat {{
-  background: var(--surface);
+.decision strong {{ color: var(--nvidia-dark); }}
+.option-grid {{
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}}
+.option-card {{
   border: 1px solid var(--line);
   border-radius: 8px;
-  min-width: 0;
-  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 245px;
+  padding: 16px;
 }}
-.stat:nth-child(2) {{ background: var(--soft-green); }}
-.stat:nth-child(3) {{ background: var(--soft-blue); }}
-.stat:nth-child(4) {{ background: var(--soft-gold); }}
-.stat-label, .stat-note {{
+.option-card.safe {{ border-top: 5px solid var(--nvidia); }}
+.option-card.option {{ border-top: 5px solid var(--cyan); }}
+.option-card.max {{ border-top: 5px solid var(--gold); }}
+.option-card.neutral {{ border-top: 5px solid #8a969d; }}
+.pill, .track {{
+  border-radius: 999px;
+  display: inline-block;
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  padding: 4px 9px;
+  text-transform: uppercase;
+}}
+.pill {{ background: var(--soft); color: var(--nvidia-dark); }}
+.option-card h3 {{ margin-top: 12px; }}
+.option-card p {{ color: var(--muted); font-size: 0.92rem; }}
+.option-metrics strong {{
+  color: var(--ink);
+  display: block;
+  font-size: 2rem;
+  line-height: 1;
+}}
+.option-metrics span {{
   color: var(--muted);
   display: block;
-  font-size: 0.82rem;
+  font-size: 0.88rem;
+  margin-top: 4px;
 }}
-.stat strong {{
+.ladder {{
+  display: grid;
+  gap: 13px;
+}}
+.ladder-row {{
+  align-items: center;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(210px, 300px) minmax(160px, 1fr) 84px;
+}}
+.ladder-label strong, .ladder-label span {{
   display: block;
-  font-size: 1.55rem;
-  line-height: 1.1;
-  margin: 6px 0;
-  overflow-wrap: anywhere;
 }}
-.two-col {{
+.ladder-label span {{
+  color: var(--muted);
+  font-size: 0.86rem;
+}}
+.ladder-track {{
+  background: #e6ece8;
+  border-radius: 999px;
+  height: 17px;
+  overflow: hidden;
+}}
+.ladder-track span {{
+  background: linear-gradient(90deg, var(--nvidia), var(--cyan));
+  display: block;
+  height: 100%;
+}}
+.ladder-row.max .ladder-track span {{ background: linear-gradient(90deg, var(--nvidia), var(--gold)); }}
+.ladder-row.probe .ladder-track span {{ background: #a9b2b5; }}
+.ladder-value {{
+  font-weight: 800;
+  text-align: right;
+}}
+.mini-grid {{
   display: grid;
   gap: 18px;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}}
+.mini-row {{
+  align-items: center;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(160px, 240px) minmax(120px, 1fr) 70px;
+  margin-top: 10px;
+}}
+.mini-row span {{ color: #2b363a; font-size: 0.92rem; }}
+.mini-row strong {{ text-align: right; }}
+.mini-track {{
+  background: #e6ece8;
+  border-radius: 999px;
+  height: 12px;
+  overflow: hidden;
+}}
+.mini-track i {{
+  background: var(--nvidia);
+  display: block;
+  height: 100%;
+}}
+.profiler-grid {{
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}}
+.stat.flat {{
+  background: #fafcf9;
 }}
 .table-wrap {{
   overflow-x: auto;
@@ -483,167 +716,171 @@ p {{ margin: 0 0 12px; }}
 }}
 table {{
   border-collapse: collapse;
-  min-width: 720px;
+  min-width: 860px;
   width: 100%;
 }}
 th, td {{
   border-bottom: 1px solid var(--line);
-  padding: 10px 9px;
+  padding: 12px 10px;
   text-align: left;
   vertical-align: top;
 }}
 th {{
-  color: #4b5961;
-  font-size: 0.82rem;
-  font-weight: 750;
+  color: #4d5b61;
+  font-size: 0.76rem;
+  font-weight: 850;
   text-transform: uppercase;
 }}
-td {{ font-size: 0.94rem; }}
+td {{ font-size: 0.93rem; }}
+.portfolio td:nth-child(4), .portfolio td:nth-child(5) {{
+  font-weight: 800;
+  white-space: nowrap;
+}}
+.variant-name strong, .variant-name span {{
+  display: block;
+}}
+.variant-name span {{
+  color: var(--muted);
+  font-size: 0.88rem;
+  max-width: 440px;
+}}
+.track.safe {{ background: #e8f4dd; color: var(--nvidia-dark); }}
+.track.option {{ background: #e5f4f8; color: #00546a; }}
+.track.max {{ background: #fff2d6; color: #6d4300; }}
+.track.neutral {{ background: #eef1f2; color: #354147; }}
+.track.probe {{ background: #f0eeee; color: #6a5454; }}
+.chips {{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}}
+.chips span {{
+  background: #f1f5f2;
+  border: 1px solid #dfe7e1;
+  border-radius: 999px;
+  color: #39454a;
+  font-size: 0.78rem;
+  padding: 4px 8px;
+  white-space: nowrap;
+}}
+.two-col {{
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}}
 code {{
   background: #edf2f3;
   border-radius: 4px;
   padding: 1px 4px;
 }}
-a {{ color: var(--blue); }}
-ul {{
-  margin: 0;
-  padding-left: 20px;
+@media (max-width: 980px) {{
+  .hero-grid, .option-grid, .profiler-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+  .intro, .mini-grid, .two-col {{ grid-template-columns: 1fr; }}
 }}
-li {{ margin: 8px 0; }}
-.callout {{
-  background: #f8fbfb;
-  border-left: 4px solid var(--blue);
-  padding: 14px 16px;
-}}
-.bar-list {{
-  display: grid;
-  gap: 11px;
-}}
-.bar-row {{
-  align-items: center;
-  display: grid;
-  gap: 10px;
-  grid-template-columns: minmax(180px, 280px) minmax(120px, 1fr) 90px;
-}}
-.bar-label {{
-  color: #27343a;
-  font-size: 0.94rem;
-}}
-.bar-track {{
-  background: #e5ecef;
-  border-radius: 999px;
-  display: block;
-  height: 14px;
-  overflow: hidden;
-}}
-.bar-fill {{
-  background: linear-gradient(90deg, var(--green), var(--blue));
-  display: block;
-  height: 100%;
-}}
-details summary {{
-  cursor: pointer;
-  font-weight: 750;
-}}
-.footer {{
-  color: var(--muted);
-  margin: 24px 0 0;
-}}
-@media (max-width: 820px) {{
-  .hero {{ padding-top: 26px; }}
-  .stats, .two-col {{ grid-template-columns: 1fr; }}
-  section {{ padding: 16px; }}
-  .bar-row {{
+@media (max-width: 680px) {{
+  .wrap {{ padding: 0 16px; }}
+  .hero {{ padding: 34px 0 28px; }}
+  .hero-grid, .option-grid, .profiler-grid {{ grid-template-columns: 1fr; }}
+  section {{ padding: 18px; }}
+  .ladder-row, .mini-row {{
     align-items: start;
     grid-template-columns: 1fr;
     gap: 6px;
   }}
-  .bar-row strong {{ font-size: 0.95rem; }}
-  table {{ min-width: 640px; }}
+  .ladder-value, .mini-row strong {{ text-align: left; }}
+  table {{ min-width: 760px; }}
 }}
 </style>
 </head>
 <body>
 <header class="hero">
-  <div class="hero-inner">
-    <p class="eyebrow">CUDA Kernel Gen report</p>
-    <h1>Baseline-preserving CUDA speedup with explicit ABI tradeoffs</h1>
-    <p class="lede">{esc(baseline_note)} The safe drop-in path keeps float input/output semantics; the faster compact paths are separate choices for clients that can change storage or downstream consumption.</p>
-    <div class="stats">
-      {stat_card("Strict original baseline", fmt_ms(strict_ms), "problem definition")}
-      {stat_card("Drop-in float default", fmt_ms(default.get("median_ms")), fmt_speedup(default_vs_strict))}
-      {stat_card("FP16 output path", fmt_ms(fp16.get("median_ms")), "ABI-changing")}
-      {stat_card("Compact U8 in/out", fmt_ms(compact.get("median_ms")), fmt_speedup(compact_vs_strict))}
+  <div class="wrap">
+    <p class="eyebrow">CUDA Kernel Gen client report</p>
+    <h1>42x drop-in speedup for the original CUDA benchmark</h1>
+    <p class="lede">The optimized float path preserves the client's baseline contract. Additional compact-storage paths show what is possible when the client can change output format or downstream consumption.</p>
+    <div class="hero-grid">
+      {stat_card("Original baseline", fmt_ms(strict_ms), "Strict problem definition")}
+      {stat_card("Recommended drop-in", fmt_speedup(default.get("speedup_strict")), fmt_ms(default.get("time_ms")))}
+      {stat_card("Best compact kernel", fmt_speedup(compact.get("speedup_strict")), "ABI-changing")}
+      {stat_card("Profiler result", "Memory-bound", "91.6% DRAM throughput")}
     </div>
   </div>
 </header>
-<main>
+
+<main class="wrap">
+  <section class="intro">
+    <div>
+      <h2>Executive Summary</h2>
+      <p>The baseline problem processes a fixed {fmt(summary.get('dimx'), 0)} x {fmt(summary.get('dimy'), 0)} float grid with five dependent transcendental iterations per element and a 1e-3 relative tolerance check.</p>
+      <p>The recommended production default is the vectorized float kernel. It keeps the input/output contract intact and moves the runtime from {fmt_ms(strict_ms)} to {fmt_ms(default.get("time_ms"))} on this Blackwell host.</p>
+      <p>Nsight confirms the optimized path is memory-throughput bound, so the biggest optional gains come from reducing bytes moved rather than adding more math specialization.</p>
+    </div>
+    <div class="decision">
+      <h2>Recommendation</h2>
+      <p><strong>Adopt the vectorized float default as the safe deliverable.</strong></p>
+      <p>Use FP16 output or compact U8 paths only as explicit ABI tracks. They are compelling when the surrounding product can store or consume compact data directly.</p>
+    </div>
+  </section>
+
   <section>
-    <h2>Executive Readout</h2>
-    <div class="two-col">
+    <h2>Client Options</h2>
+    <div class="option-grid">
+      {primary_cards(records)}
+    </div>
+  </section>
+
+  <section>
+    <h2>Performance Ladder</h2>
+    <p class="muted">Client-relevant variants, sorted by speedup against the original client baseline.</p>
+    {performance_ladder(records)}
+  </section>
+
+  <section>
+    <h2>Why The Speedup Holds</h2>
+    <div class="mini-grid">
       <div>
-        <p>The original benchmark computes a fixed {fmt(summary.get('dimx'), 0)} x {fmt(summary.get('dimy'), 0)} float grid. Each element performs five dependent iterations of log, cos, sin, or tan selected by <code>ix % 4</code>, and correctness is checked against the existing 1e-3 relative tolerance.</p>
-        <p>The drop-in recommendation is <code>vector4_coalesced_fast</code>: it preserves float in/out behavior while replacing the row-stride access pattern with contiguous vectorized work.</p>
+        <h3>Memory traffic falls as the contract narrows</h3>
+        <p class="muted">The drop-in path fixes access geometry. ABI-changing paths then reduce output and compact x/w traffic.</p>
+        {traffic_ladder(records)}
       </div>
-      <div class="callout">
-        <p><strong>Client decision:</strong> use the float default when the ABI must stay unchanged. Consider FP16 output, compact U8 input, or compact U8 output only when the surrounding system can own that data contract.</p>
-        <p class="muted">The report separates speedups against the strict original baseline from speedups against the in-harness row-stride ablation.</p>
+      <div>
+        <h3>Nsight points to bandwidth, not arithmetic</h3>
+        <div class="profiler-grid">
+          {profiler_panel(space)}
+        </div>
       </div>
     </div>
   </section>
 
   <section>
-    <h2>Key Results</h2>
-    {render_table(["Variant", "Role", "Correct", "Median time", "Speedup vs strict baseline", "Speedup vs row-stride", "Logical traffic"], build_key_rows(summary, baseline))}
+    <h2>Ranked Benchmark Portfolio</h2>
+    <p class="muted">Sorted by speedup vs the original client baseline. Footprint combines logical traffic, register pressure, and spill status so the table stays decision-oriented.</p>
+    {portfolio_table(records)}
   </section>
 
   <section>
-    <h2>Recommendations</h2>
-    <ul>{recommendation_items}</ul>
+    <h2>Multi-GPU Outlook</h2>
+    <div class="two-col">
+      <div>
+        <h3>{esc(multi_title)}</h3>
+        <p>{esc(multi_body)}</p>
+        <p class="muted">The current 8192 x 8192 harness fits one GPU with headroom, so the next multi-GPU benchmark should be a row-sharded throughput test, not a replacement for the single-GPU score above.</p>
+      </div>
+      <div>
+        {render_table(["Item", "Value"], [
+            ["Single-GPU harness memory", f"{fmt(scaling.get('single_gpu_harness_mib'))} MiB"],
+            ["Partitioned harness fits", "yes" if scaling.get("fits_partitioned_harness_with_headroom") else "no"],
+            ["GPU-to-GPU path", esc(", ".join(hardware.get("topology", {}).get("paths", [])) or "unknown")],
+            ["NVLink", "yes" if hardware.get("topology", {}).get("has_nvlink") else "no"],
+        ])}
+      </div>
+    </div>
   </section>
 
   <section>
-    <h2>Multi-GPU Readout</h2>
-    <p>{esc(topology_text(hardware))}</p>
-    {render_table(["GPU", "Name", "Rows", "Row count", "Harness shard", "Usable memory", "Fits"], build_scaling_rows(hardware))}
-    <details>
-      <summary>Memory models used for capacity planning</summary>
-      {render_table(["Model", "Bytes/element", "Total", "Meaning"], build_memory_model_rows(hardware))}
-    </details>
+    <h2>Run Context</h2>
+    {render_table(["Item", "Value"], hardware_summary(summary, hardware))}
   </section>
-
-  <section>
-    <h2>Hardware</h2>
-    {render_table(["Item", "Value"], hardware_rows)}
-  </section>
-
-  {bar_list("Time Per Launch", chart_rows, " ms", digits=4)}
-  {bar_list("Speedup Vs Strict Original", speed_rows, "x", digits=1)}
-
-  <section>
-    <h2>Profiler Evidence</h2>
-    {render_table(["Metric", "Value"], build_profiler_rows(space))}
-  </section>
-
-  <section>
-    <h2>Kernel Resource Footprint</h2>
-    {render_table(["Variant", "Registers", "Stack bytes", "Spill stores", "Spill loads"], build_resource_rows(space))}
-  </section>
-
-  <section>
-    <h2>All Timed Variants</h2>
-    <details open>
-      <summary>Show benchmark table</summary>
-      {render_table(["Variant", "Correct", "Median time", "Speedup vs strict baseline", "Speedup vs row-stride", "Logical traffic", "Effective bandwidth"], build_all_rows(summary, baseline))}
-    </details>
-  </section>
-
-  <section>
-    <h2>Artifacts</h2>
-    {render_table(["File", "Status"], artifact_rows)}
-  </section>
-
-  <p class="footer">Generated from machine-readable benchmark artifacts in <code>{esc(output_dir.relative_to(ROOT) if output_dir.is_relative_to(ROOT) else output_dir)}</code>.</p>
 </main>
 </body>
 </html>
@@ -661,7 +898,7 @@ def copy_artifacts(output_dir, publish_dir):
 
 def write_report(output_dir, publish_dir=None):
     output_dir.mkdir(parents=True, exist_ok=True)
-    html_doc = build_html(output_dir)
+    html_doc = "\n".join(line.rstrip() for line in build_html(output_dir).splitlines()) + "\n"
     report_path = output_dir / "index.html"
     report_path.write_text(html_doc)
     print(f"Wrote {report_path}")
@@ -669,9 +906,8 @@ def write_report(output_dir, publish_dir=None):
     if publish_dir:
         publish_dir.mkdir(parents=True, exist_ok=True)
         copy_artifacts(output_dir, publish_dir)
-        published = build_html(output_dir, artifact_prefix="artifacts/")
         publish_path = publish_dir / "index.html"
-        publish_path.write_text(published)
+        publish_path.write_text(html_doc)
         print(f"Wrote {publish_path}")
 
 

@@ -916,7 +916,7 @@ code {{
         {traffic_ladder(records)}
       </div>
       <div>
-        <h3>Profiler evidence, translated</h3>
+        <h3>Profiler evidence</h3>
         <p class="muted">The raw L1 sector count is a transaction counter: it confirms that vectorized loads and stores are coalesced into predictable memory chunks. The client takeaway is bandwidth pressure, not a need to inspect sector math.</p>
         <div class="profiler-grid">
           {profiler_panel(space)}

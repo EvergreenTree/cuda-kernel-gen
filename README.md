@@ -1,12 +1,17 @@
-# CUDA Kernel Gen
+# Optimizing Pointwise CUDA Kernel
 
-## Client Report
+[Client-facing performance report](https://evergreentree.github.io/cuda-kernel-gen/)
 
-Start with the published client-facing performance report:
-https://evergreentree.github.io/cuda-kernel-gen/
-
-This README is the engineering runbook for reproducing, profiling, and extending
-the benchmark results.
+- Deliver a CUDA implementation that preserves the benchmark correctness
+  contract while making the performance/correctness tradeoffs explicit.
+- Keep the original problem definition, optimized default, and experimental ABI
+  variants side by side so client decisions are evidence-based.
+- Produce repeatable, machine-specific reports that combine timing, profiler,
+  hardware, memory-footprint, and visual summaries.
+- Separate drop-in optimizations from ABI-changing options such as FP16 output,
+  compact fixed-point storage, and compact downstream consumers.
+- Productize the tuning workflow: every new machine should start with one report
+  command, one readable summary, and ledger-backed recommendations.
 
 ## Scope
 

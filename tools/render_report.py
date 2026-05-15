@@ -1535,8 +1535,10 @@ code {{
   section {{
     background: #ffffff;
     border-color: #d9e3de;
+    break-inside: auto;
     box-shadow: none;
     margin-top: 11pt;
+    page-break-inside: auto;
     padding: 13pt 14pt;
   }}
   h2 {{
@@ -1617,15 +1619,6 @@ code {{
   .chips span {{ font-size: 6.7pt; padding: 2pt 5pt; }}
   a {{ color: #005f73; text-decoration: none; }}
   code {{ background: #eef3f1; }}
-  section:nth-of-type(2),
-  section:nth-of-type(3),
-  section:nth-of-type(4),
-  section:nth-of-type(5),
-  .l2-section,
-  section:nth-of-type(7),
-  section:nth-of-type(8) {{
-    break-before: page;
-  }}
 }}
 </style>
 </head>

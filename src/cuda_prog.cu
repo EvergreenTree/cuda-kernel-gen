@@ -47,6 +47,10 @@
 #define ENABLE_CUDA_GRAPH_EXPERIMENT 0
 #endif
 
+#ifndef ENABLE_ERROR_STATS
+#define ENABLE_ERROR_STATS 0
+#endif
+
 #ifndef NREPS
 #define NREPS 10
 #endif
@@ -260,6 +264,108 @@ bool checkConsumerResults(const float *gold, const float *h_scores, int dimx,
   }
   return true;
 }
+
+#if ENABLE_ERROR_STATS
+struct ErrorStats {
+  long long elements;
+  long long misses;
+  long long le_1e_5;
+  long long le_1e_4;
+  long long le_1e_3;
+  long long gt_1e_3;
+  double sum_abs;
+  double sum_rel;
+  double sum_sq_rel;
+  float max_abs;
+  float max_rel;
+};
+
+void init_error_stats(ErrorStats *stats) { memset(stats, 0, sizeof(*stats)); }
+
+void add_error_sample(ErrorStats *stats, float gold, float got, float rel_tol) {
+  float abs_err = fabsf(gold - got);
+  float rel_err = fabsf(gold) == 0.f ? abs_err : abs_err / fabsf(gold);
+
+  stats->elements += 1;
+  stats->sum_abs += (double)abs_err;
+  stats->sum_rel += (double)rel_err;
+  stats->sum_sq_rel += (double)rel_err * (double)rel_err;
+  if (abs_err > stats->max_abs) stats->max_abs = abs_err;
+  if (rel_err > stats->max_rel) stats->max_rel = rel_err;
+  if (rel_err > rel_tol) stats->misses += 1;
+
+  if (rel_err <= 1.0e-5f) {
+    stats->le_1e_5 += 1;
+  } else if (rel_err <= 1.0e-4f) {
+    stats->le_1e_4 += 1;
+  } else if (rel_err <= 1.0e-3f) {
+    stats->le_1e_3 += 1;
+  } else {
+    stats->gt_1e_3 += 1;
+  }
+}
+
+void print_error_stats(const char *variant, const ErrorStats *stats) {
+  double inv = stats->elements ? 1.0 / (double)stats->elements : 0.0;
+  double mean_abs = stats->sum_abs * inv;
+  double mean_rel = stats->sum_rel * inv;
+  double rms_rel = sqrt(stats->sum_sq_rel * inv);
+  double miss_rate = (double)stats->misses * inv;
+  printf("error_stats variant=%s elements=%lld misses=%lld miss_rate=%.9g "
+         "max_rel=%.9g mean_rel=%.9g rms_rel=%.9g max_abs=%.9g "
+         "mean_abs=%.9g le_1e_5=%lld le_1e_4=%lld le_1e_3=%lld "
+         "gt_1e_3=%lld\n",
+         variant, stats->elements, stats->misses, miss_rate, stats->max_rel,
+         mean_rel, rms_rel, stats->max_abs, mean_abs, stats->le_1e_5,
+         stats->le_1e_4, stats->le_1e_3, stats->gt_1e_3);
+}
+
+void report_half_error_stats(const char *variant, const float *gold,
+                             const __half *h_data, int total, float rel_tol) {
+  ErrorStats stats;
+  init_error_stats(&stats);
+  for (int idx = 0; idx < total; ++idx) {
+    add_error_sample(&stats, gold[idx], __half2float(h_data[idx]), rel_tol);
+  }
+  print_error_stats(variant, &stats);
+}
+
+void report_u8_xw_error_stats(const char *variant, const float *gold,
+                              const uchar2 *h_data, int dimx, int dimy,
+                              float rel_tol) {
+  ErrorStats stats;
+  init_error_stats(&stats);
+  int groups = (dimx * dimy) / 4;
+  for (int group = 0; group < groups; ++group) {
+    int base = group << 2;
+    uchar2 packed = h_data[group];
+    float decoded[4] = {
+        unpack_range_u8(packed.x, OUT_X_MIN, OUT_X_MAX),
+        OUT_Y_CONST,
+        OUT_Z_CONST,
+        unpack_range_u8(packed.y, OUT_W_MIN, OUT_W_MAX),
+    };
+    for (int lane = 0; lane < 4; ++lane) {
+      add_error_sample(&stats, gold[base + lane], decoded[lane], rel_tol);
+    }
+  }
+  print_error_stats(variant, &stats);
+}
+
+#if ENABLE_BF16_OUTPUT_EXPERIMENT
+void report_bfloat16_error_stats(const char *variant, const float *gold,
+                                 const __nv_bfloat16 *h_data, int total,
+                                 float rel_tol) {
+  ErrorStats stats;
+  init_error_stats(&stats);
+  for (int idx = 0; idx < total; ++idx) {
+    add_error_sample(&stats, gold[idx], __bfloat162float(h_data[idx]),
+                     rel_tol);
+  }
+  print_error_stats(variant, &stats);
+}
+#endif
+#endif
 
 #if ENABLE_BF16_OUTPUT_EXPERIMENT
 bool checkBfloat16Results(float *gold, const __nv_bfloat16 *h_data, int dimx,
@@ -3085,6 +3191,10 @@ int main() {
     bool pass = verify_half_output_variant(
         variant, d_data, d_half, h_half, h_gold, h_initial, dimx, dimy,
         niterations, nbytes, half_nbytes, rel_tol);
+#if ENABLE_ERROR_STATS
+    report_half_error_stats(half_output_variant_name(variant), h_gold, h_half,
+                            total, rel_tol);
+#endif
     float elapsed_time_ms = benchmark_half_output_variant(
         variant, d_data, d_half, h_initial, dimx, dimy, niterations, nreps,
         nbytes);
@@ -3099,6 +3209,10 @@ int main() {
   bool compact_xw_pass = verify_compact_xw_half_output_variant(
       d_compact_xw, d_half, h_half, h_gold, h_compact_xw, h_initial, dimx,
       dimy, niterations, nbytes, compact_xw_nbytes, half_nbytes, rel_tol);
+#if ENABLE_ERROR_STATS
+  report_half_error_stats("compact_xw_affine_half_output_experimental", h_gold,
+                          h_half, total, rel_tol);
+#endif
   float compact_xw_elapsed_time_ms = benchmark_compact_xw_half_output_variant(
       h_compact_xw, d_compact_xw, d_half, dimx, dimy, niterations, nreps,
       compact_xw_nbytes);
@@ -3112,6 +3226,10 @@ int main() {
       d_compact_half_xw, d_half, h_half, h_gold, h_compact_half_xw, h_initial,
       dimx, dimy, niterations, nbytes, compact_half_xw_nbytes, half_nbytes,
       rel_tol);
+#if ENABLE_ERROR_STATS
+  report_half_error_stats("compact_half_xw_affine_half_output_expected_fail",
+                          h_gold, h_half, total, rel_tol);
+#endif
   float compact_half_xw_elapsed_time_ms =
       benchmark_compact_half_xw_half_output_variant(
           h_compact_half_xw, d_compact_half_xw, d_half, dimx, dimy,
@@ -3125,6 +3243,10 @@ int main() {
       d_compact_u16_xw, d_half, h_half, h_gold, h_compact_u16_xw, h_initial,
       dimx, dimy, niterations, nbytes, compact_u16_xw_nbytes, half_nbytes,
       rel_tol);
+#if ENABLE_ERROR_STATS
+  report_half_error_stats("compact_u16_xw_affine_half_output_experimental",
+                          h_gold, h_half, total, rel_tol);
+#endif
   float compact_u16_xw_elapsed_time_ms =
       benchmark_compact_u16_xw_half_output_variant(
           h_compact_u16_xw, d_compact_u16_xw, d_half, dimx, dimy, niterations,
@@ -3139,6 +3261,10 @@ int main() {
       d_compact_u8_xw, d_half, h_half, h_gold, h_compact_u8_xw, h_initial,
       dimx, dimy, niterations, nbytes, compact_u8_xw_nbytes, half_nbytes,
       rel_tol);
+#if ENABLE_ERROR_STATS
+  report_half_error_stats("compact_u8_xw_affine_half_output_experimental",
+                          h_gold, h_half, total, rel_tol);
+#endif
   float compact_u8_xw_elapsed_time_ms =
       benchmark_compact_u8_xw_half_output_variant(
           h_compact_u8_xw, d_compact_u8_xw, d_half, dimx, dimy, niterations,
@@ -3153,6 +3279,10 @@ int main() {
       d_compact_u8_xw, d_compact_u8_output, h_compact_u8_output, h_gold,
       h_compact_u8_xw, h_initial, dimx, dimy, niterations, nbytes,
       compact_u8_xw_nbytes, compact_u8_output_nbytes, rel_tol);
+#if ENABLE_ERROR_STATS
+  report_u8_xw_error_stats("compact_u8_xw_affine_u8_xw_output_experimental",
+                           h_gold, h_compact_u8_output, dimx, dimy, rel_tol);
+#endif
   float compact_u8_output_elapsed_time_ms =
       benchmark_compact_u8_xw_u8_xw_output_variant(
           h_compact_u8_xw, d_compact_u8_xw, d_compact_u8_output, dimx, dimy,
@@ -3206,6 +3336,10 @@ int main() {
       d_compact_u4_xw, d_half, h_half, h_gold, h_compact_u4_xw, h_initial,
       dimx, dimy, niterations, nbytes, compact_u4_xw_nbytes, half_nbytes,
       rel_tol);
+#if ENABLE_ERROR_STATS
+  report_half_error_stats("compact_u4_xw_affine_half_output_expected_fail",
+                          h_gold, h_half, total, rel_tol);
+#endif
   float compact_u4_xw_elapsed_time_ms =
       benchmark_compact_u4_xw_half_output_variant(
           h_compact_u4_xw, d_compact_u4_xw, d_half, dimx, dimy, niterations,
@@ -3354,6 +3488,10 @@ int main() {
   bool bf16_pass = verify_bfloat16_output_variant(
       d_data, d_bf16, h_bf16, h_gold, h_initial, dimx, dimy, niterations,
       nbytes, bf16_nbytes, rel_tol);
+#if ENABLE_ERROR_STATS
+  report_bfloat16_error_stats("vector4_affine_bf16_output_loaded_expected_fail",
+                              h_gold, h_bf16, total, rel_tol);
+#endif
   float bf16_elapsed_time_ms = benchmark_bfloat16_output_variant(
       d_data, d_bf16, h_initial, dimx, dimy, niterations, nreps, nbytes);
   printf("%s,%s,%8.4f,%lld\n",

@@ -25,6 +25,7 @@ SPECIALIZED_FLAGS ?= -DUSE_POLY_APPROX_DEFAULT=1
 BF16_FLAGS ?= -DENABLE_BF16_OUTPUT_EXPERIMENT=1
 LAYOUT_FLAGS ?= -DENABLE_LAYOUT_SETUP_EXPERIMENT=1
 GRAPH_FLAGS ?= -DENABLE_CUDA_GRAPH_EXPERIMENT=1 -DDIMX=64 -DDIMY=64 -DNREPS=5000
+ERROR_FLAGS ?= -DENABLE_ERROR_STATS=1 -DENABLE_BF16_OUTPUT_EXPERIMENT=1 -DENABLE_LAYOUT_SETUP_EXPERIMENT=1
 FATBIN_FLAGS := \
 	-gencode arch=compute_89,code=sm_89 \
 	-gencode arch=compute_90,code=sm_90 \
@@ -32,7 +33,7 @@ FATBIN_FLAGS := \
 	-gencode arch=compute_120,code=sm_120 \
 	-gencode arch=compute_120,code=compute_120
 
-.PHONY: all check baseline-check specialized-check bf16-experiment layout-experiment graph-experiment multi-gpu-check multi-gpu-report fatbin-check sanitize bench baseline-report profile-time profile-space hardware-report profile report client-summary client-report publish-report profile-quick fit-poly clean
+.PHONY: all check baseline-check specialized-check bf16-experiment layout-experiment graph-experiment error-report multi-gpu-check multi-gpu-report fatbin-check sanitize bench baseline-report profile-time profile-space hardware-report profile report client-summary client-report publish-report profile-quick fit-poly clean
 
 all: optimized.x
 
@@ -50,6 +51,9 @@ layout.x: $(OPT_SRC)
 
 graph.x: $(OPT_SRC)
 	$(NVCC) $(COMMON_FLAGS) $(ARCH_FLAGS) $(FAST_FLAGS) $(GRAPH_FLAGS) $(TUNE_FLAGS) $< -o $@
+
+error.x: $(OPT_SRC)
+	$(NVCC) $(COMMON_FLAGS) $(ARCH_FLAGS) $(FAST_FLAGS) $(ERROR_FLAGS) $(TUNE_FLAGS) $< -o $@
 
 baseline.x: $(PROBLEM_SRC)
 	$(NVCC) $(COMMON_FLAGS) $< -o $@
@@ -77,6 +81,9 @@ layout-experiment: layout.x
 
 graph-experiment: graph.x
 	./graph.x
+
+error-report:
+	$(PYTHON) tools/error_report.py --build --runs $(BENCH_RUNS) --nreps $(BENCH_NREPS) --dimx $(PROFILE_DIM) --dimy $(PROFILE_DIM) --output-dir $(REPORT_DIR)
 
 multi-gpu-check: multi-gpu.x
 	./multi-gpu.x

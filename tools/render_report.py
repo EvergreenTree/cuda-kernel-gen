@@ -19,6 +19,8 @@ ARTIFACTS = (
     "baseline.json",
     "multi_gpu.csv",
     "multi_gpu.json",
+    "error_stats.csv",
+    "error_stats.json",
     "ncu_raw.csv",
     "ncu_memory_raw.csv",
     "ptxas.log",

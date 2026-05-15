@@ -48,7 +48,7 @@ defend.
   GPU packing, compact U8 input/output, float decode, and compact downstream
   consumption; the next reporting step is to preserve those measurements as the
   default evidence for whether compact storage is an end-to-end win.
-- [ ] Add precision/error-distribution reporting for ABI-changing outputs. FP16,
+- [x] Add precision/error-distribution reporting for ABI-changing outputs. FP16,
   BF16, U8, and U4 paths should show max/mean/RMS relative error plus tolerance
   miss counts, not only pass/fail and first mismatch.
 - [ ] Automate the low-upside single-GPU tuning lane. Launch geometry, ILP, and
@@ -205,6 +205,15 @@ single-GPU kernel baseline, a row-sharded no-gather throughput row, and a
 row-sharded host-gather row so PCIe/PHB systems can be interpreted honestly.
 
 ```bash
+make error-report
+```
+
+Builds an opt-in precision reporting binary and writes `error_stats.csv` plus
+`error_stats.json` under `REPORT_DIR`. This records miss counts, miss rates,
+max/mean/RMS relative error, absolute error, and relative-error histogram buckets
+for FP16, BF16, compact U8, compact U4, and related ABI-changing outputs.
+
+```bash
 make fit-poly
 ```
 
@@ -335,6 +344,11 @@ directories:
 - `client_summary.md`: concise handoff summary with hardware facts, key variant
   timings, profiler status, and recommendations.
 - `poly_fits.json`: fixed-range polynomial search results and validation error.
+- `multi_gpu.json` / `multi_gpu.csv`: row-sharded single-vs-multi-GPU timing,
+  host-gather timing, topology, and partition ranges from `make
+  multi-gpu-report`.
+- `error_stats.json` / `error_stats.csv`: precision distributions for
+  ABI-changing output and compact-storage variants from `make error-report`.
 
 ## Glossary
 

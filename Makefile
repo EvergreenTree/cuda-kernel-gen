@@ -15,7 +15,6 @@ CLIENT_PROFILE_FLAGS ?= --memory-details
 
 OPT_SRC := src/cuda_prog.cu
 PROBLEM_SRC := problem/cuda_prog_unoptimized.cu
-MULTI_GPU_SRC := src/multi_gpu_row_shard.cu
 
 COMMON_FLAGS := -O3 -lineinfo -Xcompiler -fopenmp
 ARCH_FLAGS ?= -arch=native
@@ -26,6 +25,7 @@ BF16_FLAGS ?= -DENABLE_BF16_OUTPUT_EXPERIMENT=1
 LAYOUT_FLAGS ?= -DENABLE_LAYOUT_SETUP_EXPERIMENT=1
 GRAPH_FLAGS ?= -DENABLE_CUDA_GRAPH_EXPERIMENT=1 -DDIMX=64 -DDIMY=64 -DNREPS=5000
 ERROR_FLAGS ?= -DENABLE_ERROR_STATS=1 -DENABLE_BF16_OUTPUT_EXPERIMENT=1 -DENABLE_LAYOUT_SETUP_EXPERIMENT=1
+MULTI_GPU_FLAGS ?= -DENABLE_MULTI_GPU_ROW_SHARD=1
 FATBIN_FLAGS := \
 	-gencode arch=compute_89,code=sm_89 \
 	-gencode arch=compute_90,code=sm_90 \
@@ -58,8 +58,8 @@ error.x: $(OPT_SRC)
 baseline.x: $(PROBLEM_SRC)
 	$(NVCC) $(COMMON_FLAGS) $< -o $@
 
-multi-gpu.x: $(MULTI_GPU_SRC)
-	$(NVCC) $(COMMON_FLAGS) $(ARCH_FLAGS) $(FAST_FLAGS) $(TUNE_FLAGS) $< -o $@
+multi-gpu.x: $(OPT_SRC)
+	$(NVCC) $(COMMON_FLAGS) $(ARCH_FLAGS) $(FAST_FLAGS) $(MULTI_GPU_FLAGS) $(TUNE_FLAGS) $< -o $@
 
 fatbin.x: $(OPT_SRC)
 	$(NVCC) $(COMMON_FLAGS) $(FAST_FLAGS) $(FATBIN_FLAGS) $(TUNE_FLAGS) $< -o $@

@@ -28,7 +28,7 @@
 | Item | Value |
 | --- | --- |
 | Primary low-latency use case | HFT-style scoring or similar real-time producer/consumer pipelines where compact data can stay local across adjacent stages. |
-| Buildable report | Run `make publish-report REPORT_DIR=...` and `make pdf-report` to regenerate HTML and PDF from captured artifacts. |
+| Buildable report | Makefile targets regenerate the HTML and PDF from captured artifacts on any client machine. |
 | Hardware adaptation | GPU name, count, topology, L2 budget, and available timing rows come from JSON/CSV artifacts; missing measurements remain labeled as context. |
 
 ## Key Variants

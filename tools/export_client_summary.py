@@ -316,7 +316,7 @@ def delivery_rows():
         ],
         [
             "Buildable report",
-            "Run `make publish-report REPORT_DIR=...` and `make pdf-report` to regenerate HTML and PDF from captured artifacts.",
+            "Makefile targets regenerate the HTML and PDF from captured artifacts on any client machine.",
         ],
         [
             "Hardware adaptation",

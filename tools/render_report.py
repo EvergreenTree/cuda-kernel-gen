@@ -1768,7 +1768,7 @@ code {{
       </div>
       <div>
         <h3>Buildable and hardware-adaptive</h3>
-        <p>This report is generated from repo artifacts, not hand-patched. Re-run <code>make publish-report REPORT_DIR=...</code> and <code>make pdf-report</code> on a client machine to rebuild the HTML and PDF.</p>
+        <p>This report is generated from repo artifacts, not hand-patched. On any client machine, the Makefile can rebuild the HTML and PDF from the captured report directory.</p>
         <p class="muted">Hardware name, GPU count, topology, L2 budget, and available benchmark rows come from the captured JSON/CSV artifacts. Missing measurements stay labeled as context rather than being inferred.</p>
         {fact_grid([
             ["Current safe result", fmt_speedup(default.get("speedup_strict"))],

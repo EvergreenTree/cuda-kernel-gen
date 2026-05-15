@@ -32,6 +32,29 @@ The default deliverable is a semantic-preserving float in/out kernel. Additional
 specialized variants are included to quantify what becomes possible when a
 client can change storage format or downstream consumption.
 
+## Optimization Roadmap
+
+The current float in/out default is already memory-throughput bound on
+Blackwell, so the remaining high-upside work is structural: move fewer bytes,
+measure multi-GPU throughput honestly, and make ABI-changing choices easier to
+defend.
+
+- [ ] Add a true row-sharded multi-GPU benchmark. It should report single-GPU
+  timing, sharded timing without gather, optional host-gather timing, device
+  topology, and per-GPU row ranges. PCIe/PHB hosts are still useful when data is
+  already partitioned or capacity/throughput matters more than a single gathered
+  result.
+- [ ] Keep compact-layout experiments pipeline-oriented. The repo already times
+  GPU packing, compact U8 input/output, float decode, and compact downstream
+  consumption; the next reporting step is to preserve those measurements as the
+  default evidence for whether compact storage is an end-to-end win.
+- [ ] Add precision/error-distribution reporting for ABI-changing outputs. FP16,
+  BF16, U8, and U4 paths should show max/mean/RMS relative error plus tolerance
+  miss counts, not only pass/fail and first mismatch.
+- [ ] Automate the low-upside single-GPU tuning lane. Launch geometry, ILP, and
+  register-cap sweeps should be reproducible scripts so future devices can
+  re-check the conclusion without manual rebuild loops.
+
 ## Project Structure
 
 ```text

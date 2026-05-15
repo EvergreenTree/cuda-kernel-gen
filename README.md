@@ -80,7 +80,9 @@ make fatbin-check
 ```
 
 Builds the optimized implementation for `sm_89`, `sm_90`, `sm_100`, `sm_120`,
-and forward-compatible `compute_120` PTX.
+and forward-compatible `compute_120` PTX. If the installed `nvcc` supports
+`compute_103`, the fatbin also includes native B300 `sm_103` code and
+`compute_103` PTX.
 
 ```bash
 make sanitize
@@ -293,6 +295,42 @@ probes, not acceptable winners.
 The durable hypotheses, profiler mechanisms, and stop/revisit decisions live in
 the Experiment Ledger below; this section is intentionally just the scoreboard.
 
+## B300 SXM6 AC Results
+
+Measured on the local NVIDIA B300 SXM6 AC (`sm_103`, 148 SMs, 275040 MiB HBM)
+with CUDA 13.0 and driver 580.126.09. CUDA 12.8 cannot compile
+`-arch=native` for this device because it does not know `compute_103`; use CUDA
+13.0+ for native B300 builds. Speedup is relative to the strict original problem
+definition on the same GPU.
+
+| Build / variant | ABI / role | Correct | Time per launch | Speedup |
+| --- | --- | --- | ---: | ---: |
+| Original problem definition | float in/out | yes | 14.89 ms | 1.0x |
+| Original row-stride ablation | float in/out | yes | 6.481 ms | 2.3x |
+| Scalar coalesced ablation | float in/out | yes | 0.719 ms | 20.7x |
+| Vectorized default | float in/out | yes | 0.185 ms | 80.4x |
+| Fixed-range polynomial / affine family | float in/out | yes | 0.0847 ms | 175.8x |
+| FP16-output affine family | float in, half out | yes | 0.0629 ms | 236.7x |
+| Compact U8 `x/w` input + FP16 output | compact uchar2 in, half out | yes | 0.0398 ms | 374.1x |
+| Compact U8 `x/w` input + U8 `x/w` output | custom compact in/out | yes | 0.0321 ms | 463.9x |
+| GPU pack + compact U8 in/out pipeline | float in, custom U8 out | yes | 0.0892 ms | 166.9x |
+| GPU pack + compact U8 in/out + float decode | float in/out via custom path | yes | 0.139 ms | 106.9x |
+| Float output + downstream projection pipeline | float in/out + score | yes | 0.140 ms | 106.4x |
+| GPU pack + compact U8 in/out + compact projection | float in, custom U8 + score | yes | 0.116 ms | 127.9x |
+| `uint4` compact U8 input + U8 output with persisting input L2 | custom compact in/out, reused compact input | yes | 0.0233 ms | 639.7x |
+| `uint4` compact U8 producer + compact consumer with persisting L2 | custom compact in/out + adjacent consumer | yes | 0.0458 ms | 325.0x |
+| Fused compact U8 input to score | custom compact input + score output | yes | 0.0316 ms | 470.6x |
+| Fused compact U8 input to score with persisting input L2 | custom compact input + score output, reused compact input | yes | 0.0250 ms | 595.9x |
+
+The main B300 flip is that the standalone float path is compute-throughput
+sensitive: Nsight Compute reported about `96%` SM throughput and `34%` DRAM
+throughput for the vectorized default, and the fixed-range affine family was
+about `2.18x` faster than the semantic-preserving vector kernel. The launch
+sweep did not justify changing the default geometry: the best measured default
+setting was `THREADS_PER_BLOCK=512`, `BLOCKS_PER_SM=48`,
+`ITEMS_PER_THREAD=1` at `0.1839 ms`, only about `0.6%` ahead of the current
+`512/32/1` default.
+
 ### L2 Residency Result And Sizing Model
 
 The measured L2 result is an extreme-performance option, not the recommended
@@ -307,6 +345,21 @@ the scalar-per-group producer and persisting L2. The attempted `uint4` consumer
 is not a keeper: it measured about `0.132 ms` because each thread takes on too
 much scalar unpack and score-store work.
 
+On the B300 SXM6 AC, the same `uint4` producer plus persisting compact input
+measured `0.0233 ms`, and the `uint4` producer plus compact consumer with
+persisting output measured `0.0458 ms`. Fusing the compact producer and score
+consumer into one direct compact-input-to-score kernel measured `0.0316 ms`
+without an L2 hint and `0.0250 ms` with persisting compact input, a `1.83x`
+lift over the previous best adjacent producer-consumer path. The measured L2
+cache was `126.5 MiB`, with a `79.1 MiB` maximum persisting set-aside. Warm
+compact consumer data was about `1.25x` faster than a thrashed consumer, while
+the persisting producer and consumer total improved by about `1.07x`.
+
+The published HTML report keeps hardware variants separate. The RTX PRO 6000
+two-GPU row is a topology/hardware fact from historical artifacts (`PHB`, no
+NVLink) unless a real `multi_gpu.json` timing artifact is present; do not treat
+it as a measured multi-GPU speedup row.
+
 This is valuable for some customers seeking extreme latency, including HFT-like
 pipelines, but it is a trade-off: the product has to own a custom compact ABI,
 keep producer and consumer stages adjacent, and absorb library and maintenance
@@ -319,9 +372,9 @@ B200-class systems, very high HBM3e bandwidth narrows the L2 advantage, so cache
 residency should be treated as a target-machine measurement rather than a
 portable assumption.
 
-Planning assumptions below use about `70%` of advertised cache as usable for
-resident working data. Verify the exact SKU and workload with `make l2-report`
-before procurement or architecture commitments.
+Planning assumptions below use about `70%` of measured or advertised cache as
+usable for resident working data. Verify the exact SKU and workload with
+`make l2-report` before procurement or architecture commitments.
 
 | GPU | L2 cache | Usable for data (~70%) |
 | --- | ---: | ---: |
@@ -332,7 +385,7 @@ before procurement or architecture commitments.
 | RTX Pro 6000 Blackwell | 128 MB | ~90 MB |
 | B200 (per die, dual-die GPU) | ~126 MB per die | ~88 MB/die |
 | B200 (logical, both dies) | ~252 MB combined | ~180 MB with NUMA penalty |
-| B300 Blackwell Ultra | 192 MB | ~135 MB |
+| B300 SXM6 AC (this host) | 126.5 MB | ~89 MB |
 
 For a `512 MiB` working set, aggregate usable cache must be at least `512 MiB`
 across local shards:
@@ -341,7 +394,7 @@ across local shards:
 | --- | ---: | ---: | --- |
 | RTX Pro 6000 | 6 | ~540 MB | 5 is tight under the usable-cache model; 6 gives headroom. |
 | B200 | 3 | ~540 MB | 3 dual-die GPUs provide 6 L2 banks; HBM3e bandwidth may reduce the cache upside. |
-| B300 | 4 | ~540 MB | Comfortable margin; remeasure because HBM is already very fast. |
+| B300 SXM6 AC | 6 | ~534 MB | Based on the measured 126.5 MB L2 on this host; persisting set-aside would be tighter. |
 | H100 / H200 | 15+ | ~525 MB | Impractical; L2 is too small per card. |
 
 For a `256 MiB` working set, such as a 16-bit output path:
@@ -350,7 +403,7 @@ For a `256 MiB` working set, such as a 16-bit output path:
 | --- | ---: | ---: | --- |
 | RTX Pro 6000 | 3 | ~270 MB | Partition into about 85 MB per GPU. |
 | B200 | 2 | ~360 MB | Comfortable on 4 dies; use L2 mainly for reuse-sensitive paths. |
-| B300 | 2 | ~270 MB | Tight but workable; verify L2 benefit on target hardware. |
+| B300 SXM6 AC | 3 | ~267 MB | Tight under the 70% model and tighter under the measured persisting limit. |
 | H100 / H200 | 8 | ~280 MB | Impractical scale. |
 
 ### Tensor Core Decision
@@ -412,6 +465,7 @@ and the practical takeaway.
 | A realistic compact downstream consumer can preserve the custom-output win | Float-output projection `0.2125 ms`; compact-U8 projection `0.0274 ms`; full float pipeline plus projection `0.5789 ms`; setup-paid compact pipeline plus projection `0.2866 ms` | Nsight reports the float consumer at `211.168 us`, `92.61%` DRAM throughput, `268 MB` reads, and `8,388,608` L1 load sectors; compact consumer at `36.640 us`, `80.3%` DRAM throughput, `34 MB` reads, and `1,048,576` L1 load sectors | Custom U8 output is viable only when the next stage consumes compact x/w directly; this is the current best measured end-to-end specialized path |
 | Compact U8 input/output can benefit from L2 residency | Kernel-only producer with persisting compact input `0.0227 ms`; producer after a `256 MiB` L2-thrashing pass `0.0704 ms`; consumer after producer `0.0269 ms`; persisting-L2 producer+consumer total `0.0466 ms` versus `0.0547 ms` without it | Blackwell reports `128 MiB` L2 and `80 MiB` persisting set-aside; compact input/output are each `32 MiB`, so either side fits in the persisting window | Real lever for compact producer-consumer pipelines and HFT-like latency work, but only when custom ABI ownership, data reuse, and maintenance cost are acceptable; remeasure on B200-class HBM3e systems |
 | Wider per-thread U8 producer packing can improve the fastest compact kernel | `uint4` producer `0.0171 ms`; `uint4` producer plus persisting compact input `0.0169 ms`; `uint4` producer plus existing compact consumer and persisting output `0.0419 ms`; attempted `uint4` compact consumer `0.1316 ms` | Nsight sectors were already coalesced at `1,048,576` load sectors and `1,048,576` store sectors; `uint4` still lowers loop/address overhead by processing eight compact groups per thread. The `uint4` producer profiled at about `80%` memory throughput, `47%` SM throughput, and `0%` tensor-pipe activity; consumer-side vectorization bloats scalar unpack and store work | Keep `uint4` for the compact producer; do not vectorize the compact consumer this way |
+| Fusing compact U8 input directly into the score consumer can remove the intermediate compact output | On B300, direct fused score measured `0.0316 ms`; persisting compact input measured `0.0250 ms`, `1.83x` faster than the `0.0458 ms` uint4 producer-plus-consumer path | The fused kernel reads compact U8 input and writes the score stream directly, removing the compact U8 output write/read and one launch while preserving the `1e-3` consumer check | Keep this as the fastest score-producing custom ABI path when compact input is already available or reused; it does not replace the standalone U8-output producer when downstream really needs compact output |
 | BF16 output might be cheaper enough while staying inside tolerance | `0.2570 ms`, expected failure; first checked element had `rdiff 0.001955` | BF16 has the same output byte count as FP16 here but too few mantissa bits for the benchmark tolerance | Do not use BF16 unless the tolerance relaxes or output error is judged differently downstream |
 | SASS should confirm what `tan` actually costs | Default vector SASS contains `MUFU.SIN`, `MUFU.COS`, and `MUFU.RCP` in the tangent lane | `__tanf` lowers to sin/cos/reciprocal-like work, so explicit `sincos` sharing is not free across independent lanes | Worth revisiting only if the iterative scalar path becomes the target again |
 | CUDA Graph replay can amortize launch overhead | On `64 x 64`, stream H2D+kernel replay measured `0.014572 ms`; graph replay measured `0.013954 ms` | Graph replay trims host submission overhead, but the tested end-to-end replay still includes the H2D copy and tiny kernel work | Useful only for many small launches; it is not a lever for the full-size event-timed kernel |

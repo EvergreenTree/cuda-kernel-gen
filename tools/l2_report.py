@@ -148,6 +148,13 @@ def main():
     producer_persist_thrash = variants.get(
         "compact_u8_producer_persisting_input_after_l2_thrash_experimental", {}
     )
+    total_uint4_persist = variants.get(
+        "compact_u8_producer_uint4_consumer_persisting_l2_total_experimental", {}
+    )
+    fused_direct = variants.get("compact_u8_fused_score_direct_experimental", {})
+    fused_persist = variants.get(
+        "compact_u8_fused_score_direct_persisting_input_experimental", {}
+    )
     if warm.get("median_ms") and cold.get("median_ms"):
         cold["speedup_of_warm_l2_vs_thrash"] = cold["median_ms"] / warm["median_ms"]
     if persist.get("median_ms") and warm.get("median_ms"):
@@ -168,6 +175,14 @@ def main():
         producer_persist_thrash["speedup_vs_thrash_without_persisting"] = (
             producer_cold["median_ms"] / producer_persist_thrash["median_ms"]
         )
+    if fused_persist.get("median_ms") and fused_direct.get("median_ms"):
+        fused_persist["speedup_vs_direct_without_persisting"] = (
+            fused_direct["median_ms"] / fused_persist["median_ms"]
+        )
+    if fused_persist.get("median_ms") and total_uint4_persist.get("median_ms"):
+        fused_persist["speedup_vs_best_adjacent_pipeline"] = (
+            total_uint4_persist["median_ms"] / fused_persist["median_ms"]
+        )
 
     report = {
         "dimx": args.dimx,
@@ -187,6 +202,12 @@ def main():
         print(
             "Warm L2 consumer vs thrashed consumer: {:.2f}x".format(
                 cold["median_ms"] / warm["median_ms"]
+            )
+        )
+    if fused_persist.get("median_ms") and total_uint4_persist.get("median_ms"):
+        print(
+            "Fused score + L2 vs best adjacent pipeline: {:.2f}x".format(
+                total_uint4_persist["median_ms"] / fused_persist["median_ms"]
             )
         )
 

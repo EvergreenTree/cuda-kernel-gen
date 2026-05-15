@@ -1,0 +1,90 @@
+{
+  "dimx": 8192,
+  "dimy": 8192,
+  "nreps": 100,
+  "runs": 3,
+  "verdict": "Compact U8 output remains useful when the downstream consumer stays compact: it beats the float-output consumer path on this run.",
+  "rows": [
+    {
+      "label": "Drop-in float default",
+      "variant": "vector4_coalesced_fast",
+      "correct": true,
+      "median_ms": 0.1848,
+      "speedup_vs_float_default": 1.0,
+      "logical_bytes_per_launch": 536870912,
+      "effective_bandwidth_gbps": 2905.1456277056277
+    },
+    {
+      "label": "FP16 output",
+      "variant": "vector4_affine_half_output_sparse_experimental",
+      "correct": true,
+      "median_ms": 0.0629,
+      "speedup_vs_float_default": 2.9379968203497615,
+      "logical_bytes_per_launch": 268435456,
+      "effective_bandwidth_gbps": 4267.654308426073
+    },
+    {
+      "label": "Compact U8 input + FP16 output",
+      "variant": "compact_u8_xw_affine_half_output_experimental",
+      "correct": true,
+      "median_ms": 0.0398,
+      "speedup_vs_float_default": 4.643216080402009,
+      "logical_bytes_per_launch": 167772160,
+      "effective_bandwidth_gbps": 4215.380904522613
+    },
+    {
+      "label": "Pack U8 input setup",
+      "variant": "pack_u8_xw_setup_experimental",
+      "correct": true,
+      "median_ms": 0.0491,
+      "speedup_vs_float_default": 3.7637474541751526,
+      "logical_bytes_per_launch": 301989888,
+      "effective_bandwidth_gbps": 6150.506883910387
+    },
+    {
+      "label": "Pack U8 input + FP16 output",
+      "variant": "compact_u8_xw_with_gpu_pack_pipeline_experimental",
+      "correct": true,
+      "median_ms": 0.0933,
+      "speedup_vs_float_default": 1.9807073954983923,
+      "logical_bytes_per_launch": 436207616,
+      "effective_bandwidth_gbps": 4675.32278670954
+    },
+    {
+      "label": "Pack U8 input + compact U8 output",
+      "variant": "compact_u8_xw_u8_output_with_gpu_pack_pipeline_experimental",
+      "correct": true,
+      "median_ms": 0.0892,
+      "speedup_vs_float_default": 2.0717488789237666,
+      "logical_bytes_per_launch": 335544320,
+      "effective_bandwidth_gbps": 3761.7076233183857
+    },
+    {
+      "label": "Pack U8 input + compact U8 output + float decode",
+      "variant": "compact_u8_xw_u8_output_decode_with_gpu_pack_pipeline_experimental",
+      "correct": true,
+      "median_ms": 0.1393,
+      "speedup_vs_float_default": 1.3266331658291457,
+      "logical_bytes_per_launch": 603979776,
+      "effective_bandwidth_gbps": 4335.820358937545
+    },
+    {
+      "label": "Float output + score consumer",
+      "variant": "vector4_affine_loaded_float_consumer_pipeline_experimental",
+      "correct": true,
+      "median_ms": 0.1399,
+      "speedup_vs_float_default": 1.3209435310936384,
+      "logical_bytes_per_launch": 872415232,
+      "effective_bandwidth_gbps": 6235.991651179413
+    },
+    {
+      "label": "Compact U8 output + score consumer",
+      "variant": "compact_u8_xw_u8_output_consumer_with_gpu_pack_pipeline_experimental",
+      "correct": true,
+      "median_ms": 0.1162,
+      "speedup_vs_float_default": 1.5903614457831325,
+      "logical_bytes_per_launch": 469762048,
+      "effective_bandwidth_gbps": 4042.7026506024094
+    }
+  ]
+}

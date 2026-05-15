@@ -27,12 +27,18 @@ GRAPH_FLAGS ?= -DENABLE_CUDA_GRAPH_EXPERIMENT=1 -DDIMX=64 -DDIMY=64 -DNREPS=5000
 ERROR_FLAGS ?= -DENABLE_ERROR_STATS=1 -DENABLE_BF16_OUTPUT_EXPERIMENT=1 -DENABLE_LAYOUT_SETUP_EXPERIMENT=1
 MULTI_GPU_FLAGS ?= -DENABLE_MULTI_GPU_ROW_SHARD=1
 L2_FLAGS ?= -DENABLE_L2_EXPERIMENT=1
+NVCC_ARCHES := $(shell $(NVCC) --list-gpu-arch 2>/dev/null)
 FATBIN_FLAGS := \
 	-gencode arch=compute_89,code=sm_89 \
 	-gencode arch=compute_90,code=sm_90 \
 	-gencode arch=compute_100,code=sm_100 \
 	-gencode arch=compute_120,code=sm_120 \
 	-gencode arch=compute_120,code=compute_120
+ifneq ($(findstring compute_103,$(NVCC_ARCHES)),)
+FATBIN_FLAGS += \
+	-gencode arch=compute_103,code=sm_103 \
+	-gencode arch=compute_103,code=compute_103
+endif
 
 .PHONY: all check baseline-check specialized-check bf16-experiment layout-experiment graph-experiment pipeline-report error-report l2-report launch-sweep multi-gpu-check multi-gpu-report fatbin-check sanitize bench baseline-report profile-time profile-space hardware-report profile report client-summary client-report publish-report profile-quick fit-poly clean
 

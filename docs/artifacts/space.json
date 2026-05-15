@@ -3,8 +3,8 @@
   "dimy": 8192,
   "logical_bytes_per_launch": 536870912,
   "binary_sizes": {
-    "optimized_x_bytes": 1421264,
-    "fatbin_x_bytes": null
+    "optimized_x_bytes": 1402672,
+    "fatbin_x_bytes": 2537272
   },
   "ptxas": {
     "status": "ok",
@@ -19,7 +19,7 @@
         "stack_frame_bytes": 0,
         "spill_stores_bytes": 0,
         "spill_loads_bytes": 0,
-        "registers": 37
+        "registers": 32
       },
       "scalar_coalesced_fast": {
         "stack_frame_bytes": 0,
@@ -31,13 +31,13 @@
         "stack_frame_bytes": 0,
         "spill_stores_bytes": 0,
         "spill_loads_bytes": 0,
-        "registers": 17
+        "registers": 15
       },
       "vector4_dynamic_fallback": {
         "stack_frame_bytes": 0,
         "spill_stores_bytes": 0,
         "spill_loads_bytes": 0,
-        "registers": 25
+        "registers": 26
       },
       "consume_u8_xw_output_experimental": {
         "stack_frame_bytes": 0,
@@ -55,19 +55,19 @@
         "stack_frame_bytes": 0,
         "spill_stores_bytes": 0,
         "spill_loads_bytes": 0,
-        "registers": 34
+        "registers": 28
       },
       "compact_u8_xw_affine_u8_xw_output_experimental": {
         "stack_frame_bytes": 0,
         "spill_stores_bytes": 0,
         "spill_loads_bytes": 0,
-        "registers": 16
+        "registers": 14
       },
       "compact_u4_xw_affine_half_output_expected_fail": {
         "stack_frame_bytes": 0,
         "spill_stores_bytes": 0,
         "spill_loads_bytes": 0,
-        "registers": 36
+        "registers": 26
       },
       "compact_u8_xw_affine_half_output_experimental": {
         "stack_frame_bytes": 0,
@@ -79,13 +79,13 @@
         "stack_frame_bytes": 0,
         "spill_stores_bytes": 0,
         "spill_loads_bytes": 0,
-        "registers": 28
+        "registers": 30
       },
       "compact_half_xw_affine_half_output_expected_fail": {
         "stack_frame_bytes": 0,
         "spill_stores_bytes": 0,
         "spill_loads_bytes": 0,
-        "registers": 28
+        "registers": 26
       },
       "compact_xw_affine_half_output_experimental": {
         "stack_frame_bytes": 0,
@@ -97,7 +97,7 @@
         "stack_frame_bytes": 0,
         "spill_stores_bytes": 0,
         "spill_loads_bytes": 0,
-        "registers": 28
+        "registers": 26
       },
       "vector4_affine_half_output_sparse_experimental": {
         "stack_frame_bytes": 0,
@@ -109,7 +109,7 @@
         "stack_frame_bytes": 0,
         "spill_stores_bytes": 0,
         "spill_loads_bytes": 0,
-        "registers": 28
+        "registers": 27
       },
       "vector4_affine_loaded_fixed_range_experimental": {
         "stack_frame_bytes": 0,
@@ -133,7 +133,7 @@
         "stack_frame_bytes": 0,
         "spill_stores_bytes": 0,
         "spill_loads_bytes": 0,
-        "registers": 26
+        "registers": 25
       },
       "vector4_poly5_fixed_range_experimental": {
         "stack_frame_bytes": 0,
@@ -151,7 +151,7 @@
         "stack_frame_bytes": 0,
         "spill_stores_bytes": 0,
         "spill_loads_bytes": 0,
-        "registers": 20
+        "registers": 19
       }
     },
     "log": "ptxas.log"
@@ -159,33 +159,33 @@
   "ncu": {
     "status": "ok",
     "metrics": {
-      "duration_ns": 318016,
-      "dram_throughput_pct": 91.61,
-      "memory_throughput_pct": 91.61,
-      "l1_throughput_pct": 17.36,
-      "l2_throughput_pct": 28.19,
-      "sm_throughput_pct": 48.19,
-      "achieved_occupancy_pct": 85.76,
-      "active_warps_per_sm": 41.16,
+      "duration_ns": 181248,
+      "dram_throughput_pct": 34.29,
+      "memory_throughput_pct": 34.29,
+      "l1_throughput_pct": 17.61,
+      "l2_throughput_pct": 16.83,
+      "sm_throughput_pct": 95.8,
+      "achieved_occupancy_pct": 92.61,
+      "active_warps_per_sm": 59.27,
       "registers_per_thread": 26,
       "block_size": 512,
-      "grid_size": 6016,
-      "waves_per_sm": 10.67,
-      "thread_count": 3080192,
-      "sm_count": 188,
+      "grid_size": 4736,
+      "waves_per_sm": 8,
+      "thread_count": 2424832,
+      "sm_count": 148,
       "kernel": "void kernel_vector4_fast<5>(float4 *, int)"
     },
     "raw": "ncu_raw.csv",
-    "command": "sudo -n /usr/local/cuda/bin/ncu --set basic --page raw --csv --kernel-name regex:kernel_vector4_fast --launch-count 1 ./optimized.x",
+    "command": "/usr/local/cuda/bin/ncu --set basic --page raw --csv --kernel-name regex:kernel_vector4_fast --launch-count 1 ./optimized.x",
     "memory_details": {
       "raw": "ncu_memory_raw.csv",
-      "command": "sudo -n /usr/local/cuda/bin/ncu --metrics dram__bytes_op_read.sum,dram__bytes_op_write.sum,l1tex__t_sectors_pipe_lsu_mem_global_op_ld.sum,l1tex__t_sectors_pipe_lsu_mem_global_op_st.sum,lts__t_sectors_op_read.sum,lts__t_sectors_op_write.sum --page raw --csv --kernel-name regex:kernel_vector4_fast --launch-count 1 ./optimized.x",
+      "command": "/usr/local/cuda/bin/ncu --metrics dram__bytes_op_read.sum,dram__bytes_op_write.sum,l1tex__t_sectors_pipe_lsu_mem_global_op_ld.sum,l1tex__t_sectors_pipe_lsu_mem_global_op_st.sum,lts__t_sectors_op_read.sum,lts__t_sectors_op_write.sum --page raw --csv --kernel-name regex:kernel_vector4_fast --launch-count 1 ./optimized.x",
       "status": "ok",
       "metrics": {
         "l1_global_load_sectors": 8388608,
         "l1_global_store_sectors": 8388608,
-        "l2_read_sectors": 8392195,
-        "l2_write_sectors": 8388740,
+        "l2_read_sectors": 12584834,
+        "l2_write_sectors": 12584674,
         "kernel": "void kernel_vector4_fast<5>(float4 *, int)"
       }
     }

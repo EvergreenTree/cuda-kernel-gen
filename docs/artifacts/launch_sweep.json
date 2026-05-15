@@ -1,0 +1,436 @@
+{
+  "dimx": 8192,
+  "dimy": 8192,
+  "nreps": 100,
+  "runs": 3,
+  "best_default": {
+    "config_id": 3,
+    "variant": "vector4_coalesced_fast",
+    "correct": true,
+    "median_ms": 0.1839,
+    "speedup_vs_best_default": 1.0,
+    "threads_per_block": 512,
+    "blocks_per_sm": 48,
+    "items_per_thread": 1,
+    "maxrregcount": "",
+    "effective_bandwidth_gbps": 2919.3633061446435
+  },
+  "configs": [
+    {
+      "config_id": 0,
+      "config": {
+        "threads": 256,
+        "blocks_per_sm": 32,
+        "items": 1,
+        "maxrregcount": null
+      },
+      "summary_path": "reports/client-b300-20260515T212332Z/launch_sweep_runs/config_00/summary.json"
+    },
+    {
+      "config_id": 1,
+      "config": {
+        "threads": 512,
+        "blocks_per_sm": 16,
+        "items": 1,
+        "maxrregcount": null
+      },
+      "summary_path": "reports/client-b300-20260515T212332Z/launch_sweep_runs/config_01/summary.json"
+    },
+    {
+      "config_id": 2,
+      "config": {
+        "threads": 512,
+        "blocks_per_sm": 32,
+        "items": 1,
+        "maxrregcount": null
+      },
+      "summary_path": "reports/client-b300-20260515T212332Z/launch_sweep_runs/config_02/summary.json"
+    },
+    {
+      "config_id": 3,
+      "config": {
+        "threads": 512,
+        "blocks_per_sm": 48,
+        "items": 1,
+        "maxrregcount": null
+      },
+      "summary_path": "reports/client-b300-20260515T212332Z/launch_sweep_runs/config_03/summary.json"
+    },
+    {
+      "config_id": 4,
+      "config": {
+        "threads": 1024,
+        "blocks_per_sm": 16,
+        "items": 1,
+        "maxrregcount": null
+      },
+      "summary_path": "reports/client-b300-20260515T212332Z/launch_sweep_runs/config_04/summary.json"
+    },
+    {
+      "config_id": 5,
+      "config": {
+        "threads": 512,
+        "blocks_per_sm": 32,
+        "items": 2,
+        "maxrregcount": null
+      },
+      "summary_path": "reports/client-b300-20260515T212332Z/launch_sweep_runs/config_05/summary.json"
+    },
+    {
+      "config_id": 6,
+      "config": {
+        "threads": 512,
+        "blocks_per_sm": 32,
+        "items": 4,
+        "maxrregcount": null
+      },
+      "summary_path": "reports/client-b300-20260515T212332Z/launch_sweep_runs/config_06/summary.json"
+    },
+    {
+      "config_id": 7,
+      "config": {
+        "threads": 512,
+        "blocks_per_sm": 32,
+        "items": 1,
+        "maxrregcount": 24
+      },
+      "summary_path": "reports/client-b300-20260515T212332Z/launch_sweep_runs/config_07/summary.json"
+    },
+    {
+      "config_id": 8,
+      "config": {
+        "threads": 512,
+        "blocks_per_sm": 32,
+        "items": 1,
+        "maxrregcount": 32
+      },
+      "summary_path": "reports/client-b300-20260515T212332Z/launch_sweep_runs/config_08/summary.json"
+    }
+  ],
+  "rows": [
+    {
+      "config_id": 0,
+      "variant": "vector4_coalesced_fast",
+      "correct": true,
+      "median_ms": 0.1871,
+      "speedup_vs_best_default": 0.9828968466060931,
+      "threads_per_block": 256,
+      "blocks_per_sm": 32,
+      "items_per_thread": 1,
+      "maxrregcount": "",
+      "effective_bandwidth_gbps": 2869.4329877071086
+    },
+    {
+      "config_id": 0,
+      "variant": "vector4_ilp_fast",
+      "correct": true,
+      "median_ms": 0.1872,
+      "speedup_vs_best_default": 0.9823717948717949,
+      "threads_per_block": 256,
+      "blocks_per_sm": 32,
+      "items_per_thread": 1,
+      "maxrregcount": "",
+      "effective_bandwidth_gbps": 2867.900170940171
+    },
+    {
+      "config_id": 0,
+      "variant": "scalar_coalesced_fast",
+      "correct": true,
+      "median_ms": 0.7282,
+      "speedup_vs_best_default": 0.25254051084866797,
+      "threads_per_block": 256,
+      "blocks_per_sm": 32,
+      "items_per_thread": 1,
+      "maxrregcount": "",
+      "effective_bandwidth_gbps": 737.2575006866247
+    },
+    {
+      "config_id": 1,
+      "variant": "vector4_coalesced_fast",
+      "correct": true,
+      "median_ms": 0.1871,
+      "speedup_vs_best_default": 0.9828968466060931,
+      "threads_per_block": 512,
+      "blocks_per_sm": 16,
+      "items_per_thread": 1,
+      "maxrregcount": "",
+      "effective_bandwidth_gbps": 2869.4329877071086
+    },
+    {
+      "config_id": 1,
+      "variant": "vector4_ilp_fast",
+      "correct": true,
+      "median_ms": 0.1869,
+      "speedup_vs_best_default": 0.9839486356340289,
+      "threads_per_block": 512,
+      "blocks_per_sm": 16,
+      "items_per_thread": 1,
+      "maxrregcount": "",
+      "effective_bandwidth_gbps": 2872.50354200107
+    },
+    {
+      "config_id": 1,
+      "variant": "scalar_coalesced_fast",
+      "correct": true,
+      "median_ms": 0.7248,
+      "speedup_vs_best_default": 0.2537251655629139,
+      "threads_per_block": 512,
+      "blocks_per_sm": 16,
+      "items_per_thread": 1,
+      "maxrregcount": "",
+      "effective_bandwidth_gbps": 740.7159381898455
+    },
+    {
+      "config_id": 2,
+      "variant": "vector4_coalesced_fast",
+      "correct": true,
+      "median_ms": 0.185,
+      "speedup_vs_best_default": 0.9940540540540541,
+      "threads_per_block": 512,
+      "blocks_per_sm": 32,
+      "items_per_thread": 1,
+      "maxrregcount": "",
+      "effective_bandwidth_gbps": 2902.00492972973
+    },
+    {
+      "config_id": 2,
+      "variant": "vector4_ilp_fast",
+      "correct": true,
+      "median_ms": 0.1849,
+      "speedup_vs_best_default": 0.9945916711736074,
+      "threads_per_block": 512,
+      "blocks_per_sm": 32,
+      "items_per_thread": 1,
+      "maxrregcount": "",
+      "effective_bandwidth_gbps": 2903.5744294213087
+    },
+    {
+      "config_id": 2,
+      "variant": "scalar_coalesced_fast",
+      "correct": true,
+      "median_ms": 0.7193,
+      "speedup_vs_best_default": 0.2556652300848047,
+      "threads_per_block": 512,
+      "blocks_per_sm": 32,
+      "items_per_thread": 1,
+      "maxrregcount": "",
+      "effective_bandwidth_gbps": 746.3796913666063
+    },
+    {
+      "config_id": 3,
+      "variant": "vector4_coalesced_fast",
+      "correct": true,
+      "median_ms": 0.1839,
+      "speedup_vs_best_default": 1.0,
+      "threads_per_block": 512,
+      "blocks_per_sm": 48,
+      "items_per_thread": 1,
+      "maxrregcount": "",
+      "effective_bandwidth_gbps": 2919.3633061446435
+    },
+    {
+      "config_id": 3,
+      "variant": "vector4_ilp_fast",
+      "correct": true,
+      "median_ms": 0.1848,
+      "speedup_vs_best_default": 0.9951298701298702,
+      "threads_per_block": 512,
+      "blocks_per_sm": 48,
+      "items_per_thread": 1,
+      "maxrregcount": "",
+      "effective_bandwidth_gbps": 2905.1456277056277
+    },
+    {
+      "config_id": 3,
+      "variant": "scalar_coalesced_fast",
+      "correct": true,
+      "median_ms": 0.7175,
+      "speedup_vs_best_default": 0.25630662020905925,
+      "threads_per_block": 512,
+      "blocks_per_sm": 48,
+      "items_per_thread": 1,
+      "maxrregcount": "",
+      "effective_bandwidth_gbps": 748.2521421602787
+    },
+    {
+      "config_id": 4,
+      "variant": "vector4_coalesced_fast",
+      "correct": true,
+      "median_ms": 0.1876,
+      "speedup_vs_best_default": 0.9802771855010662,
+      "threads_per_block": 1024,
+      "blocks_per_sm": 16,
+      "items_per_thread": 1,
+      "maxrregcount": "",
+      "effective_bandwidth_gbps": 2861.7852452025586
+    },
+    {
+      "config_id": 4,
+      "variant": "vector4_ilp_fast",
+      "correct": true,
+      "median_ms": 0.1884,
+      "speedup_vs_best_default": 0.9761146496815286,
+      "threads_per_block": 1024,
+      "blocks_per_sm": 16,
+      "items_per_thread": 1,
+      "maxrregcount": "",
+      "effective_bandwidth_gbps": 2849.6332908704876
+    },
+    {
+      "config_id": 4,
+      "variant": "scalar_coalesced_fast",
+      "correct": true,
+      "median_ms": 0.7198,
+      "speedup_vs_best_default": 0.25548763545429287,
+      "threads_per_block": 1024,
+      "blocks_per_sm": 16,
+      "items_per_thread": 1,
+      "maxrregcount": "",
+      "effective_bandwidth_gbps": 745.8612281189219
+    },
+    {
+      "config_id": 5,
+      "variant": "vector4_coalesced_fast",
+      "correct": true,
+      "median_ms": 0.185,
+      "speedup_vs_best_default": 0.9940540540540541,
+      "threads_per_block": 512,
+      "blocks_per_sm": 32,
+      "items_per_thread": 2,
+      "maxrregcount": "",
+      "effective_bandwidth_gbps": 2902.00492972973
+    },
+    {
+      "config_id": 5,
+      "variant": "vector4_ilp_fast",
+      "correct": true,
+      "median_ms": 0.185,
+      "speedup_vs_best_default": 0.9940540540540541,
+      "threads_per_block": 512,
+      "blocks_per_sm": 32,
+      "items_per_thread": 2,
+      "maxrregcount": "",
+      "effective_bandwidth_gbps": 2902.00492972973
+    },
+    {
+      "config_id": 5,
+      "variant": "scalar_coalesced_fast",
+      "correct": true,
+      "median_ms": 0.7195,
+      "speedup_vs_best_default": 0.25559416261292567,
+      "threads_per_block": 512,
+      "blocks_per_sm": 32,
+      "items_per_thread": 2,
+      "maxrregcount": "",
+      "effective_bandwidth_gbps": 746.1722195969422
+    },
+    {
+      "config_id": 6,
+      "variant": "vector4_coalesced_fast",
+      "correct": true,
+      "median_ms": 0.1851,
+      "speedup_vs_best_default": 0.9935170178282011,
+      "threads_per_block": 512,
+      "blocks_per_sm": 32,
+      "items_per_thread": 4,
+      "maxrregcount": "",
+      "effective_bandwidth_gbps": 2900.437125877904
+    },
+    {
+      "config_id": 6,
+      "variant": "vector4_ilp_fast",
+      "correct": true,
+      "median_ms": 0.1859,
+      "speedup_vs_best_default": 0.9892415277030662,
+      "threads_per_block": 512,
+      "blocks_per_sm": 32,
+      "items_per_thread": 4,
+      "maxrregcount": "",
+      "effective_bandwidth_gbps": 2887.955416890801
+    },
+    {
+      "config_id": 6,
+      "variant": "scalar_coalesced_fast",
+      "correct": true,
+      "median_ms": 0.7192,
+      "speedup_vs_best_default": 0.2557007786429366,
+      "threads_per_block": 512,
+      "blocks_per_sm": 32,
+      "items_per_thread": 4,
+      "maxrregcount": "",
+      "effective_bandwidth_gbps": 746.4834705228033
+    },
+    {
+      "config_id": 7,
+      "variant": "vector4_coalesced_fast",
+      "correct": true,
+      "median_ms": 0.1849,
+      "speedup_vs_best_default": 0.9945916711736074,
+      "threads_per_block": 512,
+      "blocks_per_sm": 32,
+      "items_per_thread": 1,
+      "maxrregcount": 24,
+      "effective_bandwidth_gbps": 2903.5744294213087
+    },
+    {
+      "config_id": 7,
+      "variant": "vector4_ilp_fast",
+      "correct": true,
+      "median_ms": 0.185,
+      "speedup_vs_best_default": 0.9940540540540541,
+      "threads_per_block": 512,
+      "blocks_per_sm": 32,
+      "items_per_thread": 1,
+      "maxrregcount": 24,
+      "effective_bandwidth_gbps": 2902.00492972973
+    },
+    {
+      "config_id": 7,
+      "variant": "scalar_coalesced_fast",
+      "correct": true,
+      "median_ms": 0.7193,
+      "speedup_vs_best_default": 0.2556652300848047,
+      "threads_per_block": 512,
+      "blocks_per_sm": 32,
+      "items_per_thread": 1,
+      "maxrregcount": 24,
+      "effective_bandwidth_gbps": 746.3796913666063
+    },
+    {
+      "config_id": 8,
+      "variant": "vector4_coalesced_fast",
+      "correct": true,
+      "median_ms": 0.1852,
+      "speedup_vs_best_default": 0.9929805615550756,
+      "threads_per_block": 512,
+      "blocks_per_sm": 32,
+      "items_per_thread": 1,
+      "maxrregcount": 32,
+      "effective_bandwidth_gbps": 2898.8710151187906
+    },
+    {
+      "config_id": 8,
+      "variant": "vector4_ilp_fast",
+      "correct": true,
+      "median_ms": 0.185,
+      "speedup_vs_best_default": 0.9940540540540541,
+      "threads_per_block": 512,
+      "blocks_per_sm": 32,
+      "items_per_thread": 1,
+      "maxrregcount": 32,
+      "effective_bandwidth_gbps": 2902.00492972973
+    },
+    {
+      "config_id": 8,
+      "variant": "scalar_coalesced_fast",
+      "correct": true,
+      "median_ms": 0.7193,
+      "speedup_vs_best_default": 0.2556652300848047,
+      "threads_per_block": 512,
+      "blocks_per_sm": 32,
+      "items_per_thread": 1,
+      "maxrregcount": 32,
+      "effective_bandwidth_gbps": 746.3796913666063
+    }
+  ]
+}

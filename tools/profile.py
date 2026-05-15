@@ -6,6 +6,7 @@ import csv
 import json
 import os
 import re
+import shutil
 import shlex
 import subprocess
 from pathlib import Path
@@ -118,6 +119,20 @@ NCU_MEMORY_METRICS = {
 }
 
 
+def default_ncu_path():
+    candidates = [
+        shutil.which("ncu"),
+        "/usr/local/cuda/bin/ncu",
+        "/opt/nvidia/nsight-compute/2026.1.0/ncu",
+        "/opt/nvidia/nsight-compute/2025.3.1/ncu",
+        "/opt/nvidia/nsight-compute/2025.3.0/ncu",
+    ]
+    for candidate in candidates:
+        if candidate and Path(candidate).exists():
+            return candidate
+    return "ncu"
+
+
 def run(cmd):
     proc = subprocess.run(
         cmd,
@@ -205,7 +220,7 @@ def main():
     parser.add_argument("--dimx", type=int, default=8192)
     parser.add_argument("--dimy", type=int, default=8192)
     parser.add_argument("--kernel-regex", default="kernel_vector4_fast")
-    parser.add_argument("--ncu", default="/opt/nvidia/nsight-compute/2025.3.0/ncu")
+    parser.add_argument("--ncu", default=default_ncu_path())
     parser.add_argument("--ncu-prefix", default=os.environ.get("NCU_PREFIX", ""))
     parser.add_argument("--memory-details", action="store_true")
     parser.add_argument("--skip-ncu", action="store_true")

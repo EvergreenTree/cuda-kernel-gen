@@ -3339,6 +3339,17 @@ static __device__ __forceinline__ unsigned int transform_compact_u8_word(
          ((unsigned int)out1.x << 16) | ((unsigned int)out1.y << 24);
 }
 
+static __device__ __forceinline__ float score_transformed_compact_u8_pair(
+    uchar2 packed) {
+  float x_in = unpack_fixed_u8_xw(packed.x);
+  float w_in = unpack_fixed_u8_xw(packed.y);
+  float x = affine(fixed_range_s_unchecked(x_in), 8.08435372f,
+                   0.0109435349f);
+  float w = affine(fixed_range_s_unchecked(w_in), 7.04225693f,
+                   0.135612134f);
+  return downstream_score(x, OUT_Y_CONST, OUT_Z_CONST, w);
+}
+
 __global__ void kernel_compact_u8_xw_affine_u8_xw_output_uint4(
     const uint4 *__restrict__ in_xw4, uint4 *__restrict__ out_xw4, int vecs) {
   int vec = blockIdx.x * blockDim.x + threadIdx.x;
@@ -3352,6 +3363,17 @@ __global__ void kernel_compact_u8_xw_affine_u8_xw_output_uint4(
     result.z = transform_compact_u8_word(packed.z);
     result.w = transform_compact_u8_word(packed.w);
     out_xw4[vec] = result;
+  }
+}
+
+__global__ void kernel_compact_u8_xw_fused_score_direct(
+    const uchar2 *__restrict__ in_xw, float *__restrict__ out_scores,
+    int groups) {
+  int group = blockIdx.x * blockDim.x + threadIdx.x;
+  int stride = blockDim.x * gridDim.x;
+
+  for (; group < groups; group += stride) {
+    out_scores[group] = score_transformed_compact_u8_pair(in_xw[group]);
   }
 }
 
@@ -3417,6 +3439,15 @@ static void launch_compact_u8_consumer_uint4_stream(const uchar2 *d_out,
   const uint4 *in4 = (const uint4 *)d_out;
   kernel_consume_u8_xw_output_uint4<<<compact_grid(vecs), THREADS_PER_BLOCK, 0,
                                       stream>>>(in4, d_scores, vecs);
+}
+
+static void launch_compact_u8_fused_score_direct_stream(const uchar2 *d_xw,
+                                                        float *d_scores,
+                                                        int groups,
+                                                        cudaStream_t stream) {
+  kernel_compact_u8_xw_fused_score_direct<<<compact_grid(groups),
+                                             THREADS_PER_BLOCK, 0, stream>>>(
+      d_xw, d_scores, groups);
 }
 
 static void launch_l2_thrash(uint4 *d_thrash, int words, cudaStream_t stream) {
@@ -3633,6 +3664,53 @@ static L2Timing benchmark_l2_total(bool use_persisting, bool producer_uint4,
   return result;
 }
 
+static L2Timing benchmark_l2_fused_score_direct(bool use_persisting,
+                                                const uchar2 *d_xw,
+                                                float *d_scores,
+                                                float *h_scores,
+                                                float *h_gold, int dimx,
+                                                int dimy, int groups,
+                                                int score_nbytes, int nreps,
+                                                cudaStream_t stream,
+                                                size_t *set_aside,
+                                                size_t *window_bytes) {
+  cudaEvent_t start, stop;
+  float total_ms = 0.0f;
+  CUDA_CHECK(cudaEventCreate(&start));
+  CUDA_CHECK(cudaEventCreate(&stop));
+  bool persisting_enabled = false;
+  if (use_persisting) {
+    persisting_enabled = set_persisting_l2_window(
+        stream, (void *)d_xw, groups * sizeof(uchar2), set_aside,
+        window_bytes);
+  }
+
+  for (int rep = 0; rep < nreps; ++rep) {
+    CUDA_CHECK(cudaEventRecord(start, stream));
+    launch_compact_u8_fused_score_direct_stream(d_xw, d_scores, groups,
+                                                stream);
+    CUDA_CHECK(cudaEventRecord(stop, stream));
+    CUDA_CHECK(cudaEventSynchronize(stop));
+    CUDA_CHECK(cudaGetLastError());
+    float elapsed = 0.0f;
+    CUDA_CHECK(cudaEventElapsedTime(&elapsed, start, stop));
+    total_ms += elapsed;
+  }
+
+  bool correct =
+      verify_l2_scores(d_scores, h_scores, h_gold, dimx, dimy, score_nbytes,
+                       0.001f);
+  if (persisting_enabled) clear_persisting_l2_window(stream);
+  CUDA_CHECK(cudaEventDestroy(start));
+  CUDA_CHECK(cudaEventDestroy(stop));
+
+  L2Timing result;
+  result.ms = total_ms / (float)nreps;
+  result.correct = correct;
+  result.persisting_enabled = persisting_enabled;
+  return result;
+}
+
 static void print_l2_row(const char *variant, const L2Timing *timing,
                          long long logical_bytes) {
   printf("%s,%s,%8.6f,%lld,%s\n", variant, timing->correct ? "yes" : "no",
@@ -3662,6 +3740,8 @@ int main() {
   long long producer_logical_bytes = (long long)compact_u8_nbytes * 2LL;
   long long total_logical_bytes =
       (long long)compact_u8_nbytes * 2LL + consumer_logical_bytes;
+  long long fused_score_logical_bytes =
+      (long long)compact_u8_nbytes + (long long)score_nbytes;
 
   cudaDeviceProp prop;
   CUDA_CHECK(cudaGetDeviceProperties(&prop, 0));
@@ -3811,6 +3891,18 @@ int main() {
       "compact_u8_producer_uint4_consumer_persisting_l2_total_experimental",
       &total_uint4_persist, total_logical_bytes);
 
+  L2Timing fused_score = benchmark_l2_fused_score_direct(
+      false, d_xw, d_scores, h_scores, h_gold, dimx, dimy, groups,
+      score_nbytes, nreps, stream, &set_aside, &window_bytes);
+  print_l2_row("compact_u8_fused_score_direct_experimental", &fused_score,
+               fused_score_logical_bytes);
+
+  L2Timing fused_score_persist = benchmark_l2_fused_score_direct(
+      true, d_xw, d_scores, h_scores, h_gold, dimx, dimy, groups,
+      score_nbytes, nreps, stream, &set_aside, &window_bytes);
+  print_l2_row("compact_u8_fused_score_direct_persisting_input_experimental",
+               &fused_score_persist, fused_score_logical_bytes);
+
   printf("l2_config,set_aside_bytes,%zu\n", set_aside);
   printf("l2_config,window_bytes,%zu\n", window_bytes);
   printf("CUDA: %s\n", cudaGetErrorString(cudaGetLastError()));
@@ -3833,7 +3925,8 @@ int main() {
                   consume_uint4.correct && consume_uint4_persist.correct &&
                   persist_thrash.correct && total_warm.correct &&
                   total_persist.correct && total_uint4.correct &&
-                  total_uint4_persist.correct;
+                  total_uint4_persist.correct && fused_score.correct &&
+                  fused_score_persist.correct;
   return all_pass ? EXIT_SUCCESS : EXIT_FAILURE;
 }
 

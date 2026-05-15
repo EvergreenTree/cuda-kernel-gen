@@ -1,0 +1,10 @@
+label,variant,correct,median_ms,speedup_vs_float_default,logical_bytes_per_launch,effective_bandwidth_gbps
+Drop-in float default,vector4_coalesced_fast,True,0.1848,1.0,536870912,2905.1456277056277
+FP16 output,vector4_affine_half_output_sparse_experimental,True,0.0629,2.9379968203497615,268435456,4267.654308426073
+Compact U8 input + FP16 output,compact_u8_xw_affine_half_output_experimental,True,0.0398,4.643216080402009,167772160,4215.380904522613
+Pack U8 input setup,pack_u8_xw_setup_experimental,True,0.0491,3.7637474541751526,301989888,6150.506883910387
+Pack U8 input + FP16 output,compact_u8_xw_with_gpu_pack_pipeline_experimental,True,0.0933,1.9807073954983923,436207616,4675.32278670954
+Pack U8 input + compact U8 output,compact_u8_xw_u8_output_with_gpu_pack_pipeline_experimental,True,0.0892,2.0717488789237666,335544320,3761.7076233183857
+Pack U8 input + compact U8 output + float decode,compact_u8_xw_u8_output_decode_with_gpu_pack_pipeline_experimental,True,0.1393,1.3266331658291457,603979776,4335.820358937545
+Float output + score consumer,vector4_affine_loaded_float_consumer_pipeline_experimental,True,0.1399,1.3209435310936384,872415232,6235.991651179413
+Compact U8 output + score consumer,compact_u8_xw_u8_output_consumer_with_gpu_pack_pipeline_experimental,True,0.1162,1.5903614457831325,469762048,4042.7026506024094

@@ -42,6 +42,14 @@ KEY_VARIANTS = (
         "uint4 + L2 compact pipeline",
         "compact_u8_producer_uint4_consumer_persisting_l2_total_experimental",
     ),
+    (
+        "Fused compact U8 input to score",
+        "compact_u8_fused_score_direct_experimental",
+    ),
+    (
+        "Fused compact U8 input to score + L2",
+        "compact_u8_fused_score_direct_persisting_input_experimental",
+    ),
     ("Decode U8 output to float", "decode_u8_xw_output_to_float_experimental"),
     (
         "Float output + score pipeline",
@@ -58,7 +66,7 @@ CACHE_PLANNING_ROWS = (
     ("RTX 6000 Ada / RTX 5090", "~67 MiB", "4 GPUs", "8 GPUs"),
     ("RTX Pro 6000 Blackwell", "~90 MiB", "3 GPUs", "6 GPUs"),
     ("B200", "~180 MiB logical", "2 GPUs", "3 GPUs"),
-    ("B300", "~135 MiB", "2 GPUs", "4 GPUs"),
+    ("B300 SXM6 AC (measured)", "~89 MiB", "3 GPUs", "6 GPUs"),
 )
 
 
@@ -151,6 +159,9 @@ def l2_summary_rows(l2_cache, baseline):
     warm = variants.get("consume_u8_after_producer_warm_l2_experimental", {})
     thrashed = variants.get("consume_u8_after_l2_thrash_experimental", {})
     no_persist_total = variants.get("compact_u8_producer_consumer_total_experimental", {})
+    fused = variants.get(
+        "compact_u8_fused_score_direct_persisting_input_experimental", {}
+    ) or variants.get("compact_u8_fused_score_direct_experimental", {})
     if not total and not producer and not producer_uint4:
         return []
 
@@ -197,6 +208,16 @@ def l2_summary_rows(l2_cache, baseline):
         if strict_ms and best_total.get("median_ms")
         else None
     )
+    fused_gain = (
+        best_total.get("median_ms") / fused.get("median_ms")
+        if best_total.get("median_ms") and fused.get("median_ms")
+        else None
+    )
+    fused_strict_gain = (
+        strict_ms / fused.get("median_ms")
+        if strict_ms and fused.get("median_ms")
+        else None
+    )
     return [
         ["Best U8 in/out kernel", fmt(best_producer.get("median_ms"), 4, " ms")],
         ["Kernel-only speedup vs strict baseline", fmt(producer_strict_gain, 1, "x")],
@@ -211,6 +232,9 @@ def l2_summary_rows(l2_cache, baseline):
         ["Pipeline speedup vs strict baseline", fmt(strict_gain, 1, "x")],
         ["Warm consumer vs thrashed consumer", fmt(warm_gain, 1, "x")],
         ["Persisting total lift", fmt(persist_gain, 2, "x")],
+        ["Fused score result", fmt(fused.get("median_ms"), 4, " ms")],
+        ["Fused vs best adjacent", fmt(fused_gain, 2, "x")],
+        ["Fused speedup vs strict baseline", fmt(fused_strict_gain, 1, "x")],
         ["Compact output footprint", fmt_mib(l2_cache.get("config", {}).get("compact_output_bytes"))],
         ["L2 budget on this host", fmt_mib(l2_cache.get("config", {}).get("persisting_l2_max_bytes"))],
     ]

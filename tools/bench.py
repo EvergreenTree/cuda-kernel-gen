@@ -70,7 +70,7 @@ def write_csv(path, rows):
     path.parent.mkdir(parents=True, exist_ok=True)
     fieldnames = list(rows[0].keys())
     with path.open("w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer = csv.DictWriter(f, fieldnames=fieldnames, lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
 

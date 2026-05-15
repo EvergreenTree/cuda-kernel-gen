@@ -1,7 +1,7 @@
 {
   "correct": true,
-  "time_ms": 13.08,
-  "raw_output": "allocated 256.00 MB on GPU\nallocated 512.00 MB on CPU\nVerifying solution\nRep: 0\nResults are correct\nA:     13.08 ms\nCUDA: no error\n",
+  "time_ms": 14.89,
+  "raw_output": "allocated 256.00 MB on GPU\nallocated 512.00 MB on CPU\nVerifying solution\nRep: 0\nResults are correct\nA:     14.89 ms\nCUDA: no error\n",
   "command": "./baseline.x",
   "role": "strict_original_problem_definition"
 }

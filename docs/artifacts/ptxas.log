@@ -1,134 +1,134 @@
-make[1]: Entering directory '/home/sesterce/cuda-kernel-gen'
+make[2]: Entering directory '/root/cuda-kernel-gen'
 /usr/local/cuda/bin/nvcc -O3 -lineinfo -Xcompiler -fopenmp -arch=native --use_fast_math -Xptxas=-v -DDIMX=8192 -DDIMY=8192 src/cuda_prog.cu -o optimized.x
-src/cuda_prog.cu(2917): warning #177-D: variable "vector4_float_consumer_pipeline_logical_bytes" was declared but never referenced
+src/cuda_prog.cu(3974): warning #177-D: variable "vector4_float_consumer_pipeline_logical_bytes" was declared but never referenced
     long long vector4_float_consumer_pipeline_logical_bytes =
               ^
 
 Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
 
-src/cuda_prog.cu(2919): warning #177-D: variable "compact_u8_output_consumer_pipeline_logical_bytes" was declared but never referenced
+src/cuda_prog.cu(3976): warning #177-D: variable "compact_u8_output_consumer_pipeline_logical_bytes" was declared but never referenced
     long long compact_u8_output_consumer_pipeline_logical_bytes =
               ^
 
 ptxas info    : 0 bytes gmem
-ptxas info    : Compiling entry function '_Z19kernel_vector4_fastILi5EEvP6float4i' for 'sm_120'
+ptxas info    : Compiling entry function '_Z19kernel_vector4_fastILi5EEvP6float4i' for 'sm_103'
 ptxas info    : Function properties for _Z19kernel_vector4_fastILi5EEvP6float4i
     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
 ptxas info    : Used 26 registers, used 0 barriers
-ptxas info    : Compile time = 3.309 ms
-ptxas info    : Compiling entry function '_Z23kernel_vector4_ilp_fastILi5ELi2EEvP6float4i' for 'sm_120'
+ptxas info    : Compile time = 2.978 ms
+ptxas info    : Compiling entry function '_Z23kernel_vector4_ilp_fastILi5ELi2EEvP6float4i' for 'sm_103'
 ptxas info    : Function properties for _Z23kernel_vector4_ilp_fastILi5ELi2EEvP6float4i
     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
-ptxas info    : Used 37 registers, used 0 barriers
-ptxas info    : Compile time = 5.122 ms
-ptxas info    : Compiling entry function '_Z23kernel_scalar_coalescedILi5EEvPfii' for 'sm_120'
+ptxas info    : Used 32 registers, used 0 barriers
+ptxas info    : Compile time = 4.324 ms
+ptxas info    : Compiling entry function '_Z23kernel_scalar_coalescedILi5EEvPfii' for 'sm_103'
 ptxas info    : Function properties for _Z23kernel_scalar_coalescedILi5EEvPfii
     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
 ptxas info    : Used 21 registers, used 0 barriers
-ptxas info    : Compile time = 3.774 ms
-ptxas info    : Compiling entry function '_Z30kernel_scalar_fast_half_outputPKfP6__halfiii' for 'sm_120'
+ptxas info    : Compile time = 2.962 ms
+ptxas info    : Compiling entry function '_Z30kernel_scalar_fast_half_outputPKfP6__halfiii' for 'sm_103'
 ptxas info    : Function properties for _Z30kernel_scalar_fast_half_outputPKfP6__halfiii
     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
-ptxas info    : Used 17 registers, used 0 barriers
-ptxas info    : Compile time = 6.758 ms
-ptxas info    : Compiling entry function '_Z27kernel_vector4_fast_dynamicP6float4ii' for 'sm_120'
+ptxas info    : Used 15 registers, used 0 barriers
+ptxas info    : Compile time = 4.591 ms
+ptxas info    : Compiling entry function '_Z27kernel_vector4_fast_dynamicP6float4ii' for 'sm_103'
 ptxas info    : Function properties for _Z27kernel_vector4_fast_dynamicP6float4ii
     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
-ptxas info    : Used 25 registers, used 0 barriers
-ptxas info    : Compile time = 3.647 ms
-ptxas info    : Compiling entry function '_Z27kernel_consume_u8_xw_outputPK6uchar2Pfi' for 'sm_120'
+ptxas info    : Used 26 registers, used 0 barriers
+ptxas info    : Compile time = 3.184 ms
+ptxas info    : Compiling entry function '_Z27kernel_consume_u8_xw_outputPK6uchar2Pfi' for 'sm_103'
 ptxas info    : Function properties for _Z27kernel_consume_u8_xw_outputPK6uchar2Pfi
     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
 ptxas info    : Used 27 registers, used 0 barriers
-ptxas info    : Compile time = 3.325 ms
-ptxas info    : Compiling entry function '_Z28kernel_consume_float4_outputPK6float4Pfi' for 'sm_120'
+ptxas info    : Compile time = 2.939 ms
+ptxas info    : Compiling entry function '_Z28kernel_consume_float4_outputPK6float4Pfi' for 'sm_103'
 ptxas info    : Function properties for _Z28kernel_consume_float4_outputPK6float4Pfi
     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
 ptxas info    : Used 28 registers, used 0 barriers
-ptxas info    : Compile time = 2.832 ms
-ptxas info    : Compiling entry function '_Z36kernel_decode_u8_xw_output_to_float4PK6uchar2P6float4i' for 'sm_120'
+ptxas info    : Compile time = 2.426 ms
+ptxas info    : Compiling entry function '_Z36kernel_decode_u8_xw_output_to_float4PK6uchar2P6float4i' for 'sm_103'
 ptxas info    : Function properties for _Z36kernel_decode_u8_xw_output_to_float4PK6uchar2P6float4i
     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
-ptxas info    : Used 34 registers, used 0 barriers
-ptxas info    : Compile time = 3.098 ms
-ptxas info    : Compiling entry function '_Z40kernel_compact_u8_xw_affine_u8_xw_outputPK6uchar2PS_i' for 'sm_120'
+ptxas info    : Used 28 registers, used 0 barriers
+ptxas info    : Compile time = 2.754 ms
+ptxas info    : Compiling entry function '_Z40kernel_compact_u8_xw_affine_u8_xw_outputPK6uchar2PS_i' for 'sm_103'
 ptxas info    : Function properties for _Z40kernel_compact_u8_xw_affine_u8_xw_outputPK6uchar2PS_i
     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
-ptxas info    : Used 16 registers, used 0 barriers
-ptxas info    : Compile time = 1.612 ms
-ptxas info    : Compiling entry function '_Z39kernel_compact_u4_xw_affine_half_outputPKhP7__half2i' for 'sm_120'
+ptxas info    : Used 14 registers, used 0 barriers
+ptxas info    : Compile time = 1.418 ms
+ptxas info    : Compiling entry function '_Z39kernel_compact_u4_xw_affine_half_outputPKhP7__half2i' for 'sm_103'
 ptxas info    : Function properties for _Z39kernel_compact_u4_xw_affine_half_outputPKhP7__half2i
     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
-ptxas info    : Used 36 registers, used 0 barriers
-ptxas info    : Compile time = 4.285 ms
-ptxas info    : Compiling entry function '_Z39kernel_compact_u8_xw_affine_half_outputPK6uchar2P7__half2i' for 'sm_120'
+ptxas info    : Used 26 registers, used 0 barriers
+ptxas info    : Compile time = 3.847 ms
+ptxas info    : Compiling entry function '_Z39kernel_compact_u8_xw_affine_half_outputPK6uchar2P7__half2i' for 'sm_103'
 ptxas info    : Function properties for _Z39kernel_compact_u8_xw_affine_half_outputPK6uchar2P7__half2i
     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
 ptxas info    : Used 28 registers, used 0 barriers
-ptxas info    : Compile time = 4.051 ms
-ptxas info    : Compiling entry function '_Z40kernel_compact_u16_xw_affine_half_outputPK7ushort2P7__half2i' for 'sm_120'
+ptxas info    : Compile time = 3.599 ms
+ptxas info    : Compiling entry function '_Z40kernel_compact_u16_xw_affine_half_outputPK7ushort2P7__half2i' for 'sm_103'
 ptxas info    : Function properties for _Z40kernel_compact_u16_xw_affine_half_outputPK7ushort2P7__half2i
     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
-ptxas info    : Used 28 registers, used 0 barriers
-ptxas info    : Compile time = 4.005 ms
-ptxas info    : Compiling entry function '_Z41kernel_compact_half_xw_affine_half_outputPK7__half2PS_i' for 'sm_120'
+ptxas info    : Used 30 registers, used 0 barriers
+ptxas info    : Compile time = 3.483 ms
+ptxas info    : Compiling entry function '_Z41kernel_compact_half_xw_affine_half_outputPK7__half2PS_i' for 'sm_103'
 ptxas info    : Function properties for _Z41kernel_compact_half_xw_affine_half_outputPK7__half2PS_i
     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
-ptxas info    : Used 28 registers, used 0 barriers
-ptxas info    : Compile time = 3.811 ms
-ptxas info    : Compiling entry function '_Z36kernel_compact_xw_affine_half_outputPK6float2P7__half2i' for 'sm_120'
+ptxas info    : Used 26 registers, used 0 barriers
+ptxas info    : Compile time = 3.311 ms
+ptxas info    : Compiling entry function '_Z36kernel_compact_xw_affine_half_outputPK6float2P7__half2i' for 'sm_103'
 ptxas info    : Function properties for _Z36kernel_compact_xw_affine_half_outputPK6float2P7__half2i
     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
 ptxas info    : Used 30 registers, used 0 barriers
-ptxas info    : Compile time = 3.636 ms
-ptxas info    : Compiling entry function '_Z40kernel_vector4_affine_half_output_packedPK6float4Pyi' for 'sm_120'
+ptxas info    : Compile time = 3.184 ms
+ptxas info    : Compiling entry function '_Z40kernel_vector4_affine_half_output_packedPK6float4Pyi' for 'sm_103'
 ptxas info    : Function properties for _Z40kernel_vector4_affine_half_output_packedPK6float4Pyi
     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
-ptxas info    : Used 28 registers, used 0 barriers
-ptxas info    : Compile time = 3.791 ms
-ptxas info    : Compiling entry function '_Z40kernel_vector4_affine_half_output_sparsePKfP7__half2i' for 'sm_120'
+ptxas info    : Used 26 registers, used 0 barriers
+ptxas info    : Compile time = 3.219 ms
+ptxas info    : Compiling entry function '_Z40kernel_vector4_affine_half_output_sparsePKfP7__half2i' for 'sm_103'
 ptxas info    : Function properties for _Z40kernel_vector4_affine_half_output_sparsePKfP7__half2i
     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
 ptxas info    : Used 30 registers, used 0 barriers
-ptxas info    : Compile time = 3.818 ms
-ptxas info    : Compiling entry function '_Z40kernel_vector4_affine_half_output_loadedPK6float4P7__half2i' for 'sm_120'
+ptxas info    : Compile time = 3.314 ms
+ptxas info    : Compiling entry function '_Z40kernel_vector4_affine_half_output_loadedPK6float4P7__half2i' for 'sm_103'
 ptxas info    : Function properties for _Z40kernel_vector4_affine_half_output_loadedPK6float4P7__half2i
     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
-ptxas info    : Used 28 registers, used 0 barriers
-ptxas info    : Compile time = 3.736 ms
-ptxas info    : Compiling entry function '_Z28kernel_vector4_affine_loadedP6float4i' for 'sm_120'
+ptxas info    : Used 27 registers, used 0 barriers
+ptxas info    : Compile time = 3.249 ms
+ptxas info    : Compiling entry function '_Z28kernel_vector4_affine_loadedP6float4i' for 'sm_103'
 ptxas info    : Function properties for _Z28kernel_vector4_affine_loadedP6float4i
     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
 ptxas info    : Used 22 registers, used 0 barriers
-ptxas info    : Compile time = 3.022 ms
-ptxas info    : Compiling entry function '_Z28kernel_vector4_affine_sparsePfi' for 'sm_120'
+ptxas info    : Compile time = 2.606 ms
+ptxas info    : Compiling entry function '_Z28kernel_vector4_affine_sparsePfi' for 'sm_103'
 ptxas info    : Function properties for _Z28kernel_vector4_affine_sparsePfi
     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
 ptxas info    : Used 24 registers, used 0 barriers
-ptxas info    : Compile time = 3.302 ms
-ptxas info    : Compiling entry function '_Z27kernel_vector4_poly5_sparsePfi' for 'sm_120'
+ptxas info    : Compile time = 2.884 ms
+ptxas info    : Compiling entry function '_Z27kernel_vector4_poly5_sparsePfi' for 'sm_103'
 ptxas info    : Function properties for _Z27kernel_vector4_poly5_sparsePfi
     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
 ptxas info    : Used 24 registers, used 0 barriers
-ptxas info    : Compile time = 3.452 ms
-ptxas info    : Compiling entry function '_Z30kernel_vector4_poly5_uncheckedP6float4i' for 'sm_120'
+ptxas info    : Compile time = 3.000 ms
+ptxas info    : Compiling entry function '_Z30kernel_vector4_poly5_uncheckedP6float4i' for 'sm_103'
 ptxas info    : Function properties for _Z30kernel_vector4_poly5_uncheckedP6float4i
     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
-ptxas info    : Used 26 registers, used 0 barriers
-ptxas info    : Compile time = 3.606 ms
-ptxas info    : Compiling entry function '_Z26kernel_vector4_poly5_fixedP6float4i' for 'sm_120'
+ptxas info    : Used 25 registers, used 0 barriers
+ptxas info    : Compile time = 3.110 ms
+ptxas info    : Compiling entry function '_Z26kernel_vector4_poly5_fixedP6float4i' for 'sm_103'
 ptxas info    : Function properties for _Z26kernel_vector4_poly5_fixedP6float4i
     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
 ptxas info    : Used 22 registers, used 0 barriers
-ptxas info    : Compile time = 1.457 ms
-ptxas info    : Compiling entry function '_Z31kernel_scalar_coalesced_dynamicPfiii' for 'sm_120'
+ptxas info    : Compile time = 1.275 ms
+ptxas info    : Compiling entry function '_Z31kernel_scalar_coalesced_dynamicPfiii' for 'sm_103'
 ptxas info    : Function properties for _Z31kernel_scalar_coalesced_dynamicPfiii
     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
 ptxas info    : Used 18 registers, used 0 barriers
-ptxas info    : Compile time = 5.938 ms
-ptxas info    : Compiling entry function '_Z15kernel_originalPfiii' for 'sm_120'
+ptxas info    : Compile time = 4.111 ms
+ptxas info    : Compiling entry function '_Z15kernel_originalPfiii' for 'sm_103'
 ptxas info    : Function properties for _Z15kernel_originalPfiii
     0 bytes stack frame, 0 bytes spill stores, 0 bytes spill loads
-ptxas info    : Used 20 registers, used 0 barriers
-ptxas info    : Compile time = 5.832 ms
-make[1]: Leaving directory '/home/sesterce/cuda-kernel-gen'
+ptxas info    : Used 19 registers, used 0 barriers
+ptxas info    : Compile time = 3.969 ms
+make[2]: Leaving directory '/root/cuda-kernel-gen'

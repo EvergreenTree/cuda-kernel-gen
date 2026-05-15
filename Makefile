@@ -3,6 +3,7 @@ COMPUTE_SANITIZER ?= $(shell command -v compute-sanitizer 2>/dev/null || printf 
 PYTHON ?= python3
 REPORT_DIR ?= reports/latest
 CLIENT_REPORT_DIR ?= reports/client-$(shell hostname)-$(shell date -u +%Y%m%dT%H%M%SZ)
+PAGES_DIR ?= docs
 BENCH_NREPS ?= 100
 BENCH_RUNS ?= 3
 PROFILE_DIM ?= 8192
@@ -30,7 +31,7 @@ FATBIN_FLAGS := \
 	-gencode arch=compute_120,code=sm_120 \
 	-gencode arch=compute_120,code=compute_120
 
-.PHONY: all check baseline-check specialized-check bf16-experiment layout-experiment graph-experiment fatbin-check sanitize bench profile-time profile-space hardware-report profile report client-summary client-report profile-quick fit-poly clean
+.PHONY: all check baseline-check specialized-check bf16-experiment layout-experiment graph-experiment fatbin-check sanitize bench baseline-report profile-time profile-space hardware-report profile report client-summary client-report publish-report profile-quick fit-poly clean
 
 all: optimized.x
 
@@ -82,6 +83,9 @@ sanitize: optimized.x
 bench:
 	$(PYTHON) tools/bench.py --build --runs $(BENCH_RUNS) --nreps $(BENCH_NREPS) --dimx $(PROFILE_DIM) --dimy $(PROFILE_DIM) --tune-flags="$(BENCH_TUNE_FLAGS)" --output-dir $(REPORT_DIR)
 
+baseline-report: baseline.x
+	$(PYTHON) tools/baseline.py --output-dir $(REPORT_DIR)
+
 profile-time: BENCH_TUNE_FLAGS=$(PROFILE_TUNE_FLAGS)
 profile-time: bench
 
@@ -101,7 +105,12 @@ client-summary:
 
 client-report:
 	$(MAKE) profile REPORT_DIR="$(CLIENT_REPORT_DIR)" PROFILE_FLAGS="$(CLIENT_PROFILE_FLAGS)" NCU_PREFIX="$(NCU_PREFIX)" PROFILE_TUNE_FLAGS="$(PROFILE_TUNE_FLAGS)"
+	$(PYTHON) tools/baseline.py --build --output-dir "$(CLIENT_REPORT_DIR)"
+	$(PYTHON) tools/render_report.py --output-dir "$(CLIENT_REPORT_DIR)"
 	$(PYTHON) tools/export_client_summary.py --output-dir "$(CLIENT_REPORT_DIR)"
+
+publish-report:
+	$(PYTHON) tools/render_report.py --output-dir "$(REPORT_DIR)" --publish-dir "$(PAGES_DIR)"
 
 profile-quick:
 	$(PYTHON) tools/bench.py --build --runs 1 --nreps 10 --dimx 1024 --dimy 1024 --output-dir $(REPORT_DIR)/quick

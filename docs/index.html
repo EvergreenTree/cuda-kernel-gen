@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CUDA Kernel Gen Performance Report</title>
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f6f8f8;
+  --surface: #ffffff;
+  --ink: #172026;
+  --muted: #60707a;
+  --line: #d9e1e4;
+  --green: #147d64;
+  --blue: #245f9f;
+  --gold: #9b6a10;
+  --soft-green: #e7f4ef;
+  --soft-blue: #e8f0fa;
+  --soft-gold: #f7efd9;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font: 16px/1.55 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  margin: 0;
+}
+main {
+  margin: 0 auto;
+  max-width: 1120px;
+  padding: 28px 18px 48px;
+}
+.hero {
+  background: var(--surface);
+  border-bottom: 4px solid var(--green);
+  padding: 34px 0 26px;
+}
+.hero-inner {
+  margin: 0 auto;
+  max-width: 1120px;
+  padding: 0 18px;
+}
+.eyebrow {
+  color: var(--green);
+  font-size: 0.78rem;
+  font-weight: 750;
+  letter-spacing: 0;
+  margin: 0 0 8px;
+  text-transform: uppercase;
+}
+h1 {
+  font-size: clamp(2rem, 4vw, 3.7rem);
+  line-height: 1.02;
+  margin: 0;
+  max-width: 900px;
+}
+.lede {
+  color: var(--muted);
+  font-size: 1.08rem;
+  max-width: 820px;
+}
+section {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin-top: 18px;
+  padding: 20px;
+}
+h2 {
+  font-size: 1.25rem;
+  line-height: 1.2;
+  margin: 0 0 12px;
+}
+h3 {
+  font-size: 1rem;
+  margin: 18px 0 8px;
+}
+p { margin: 0 0 12px; }
+.muted { color: var(--muted); }
+.stats {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 22px;
+}
+.stat {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  min-width: 0;
+  padding: 14px;
+}
+.stat:nth-child(2) { background: var(--soft-green); }
+.stat:nth-child(3) { background: var(--soft-blue); }
+.stat:nth-child(4) { background: var(--soft-gold); }
+.stat-label, .stat-note {
+  color: var(--muted);
+  display: block;
+  font-size: 0.82rem;
+}
+.stat strong {
+  display: block;
+  font-size: 1.55rem;
+  line-height: 1.1;
+  margin: 6px 0;
+  overflow-wrap: anywhere;
+}
+.two-col {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+.table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+table {
+  border-collapse: collapse;
+  min-width: 720px;
+  width: 100%;
+}
+th, td {
+  border-bottom: 1px solid var(--line);
+  padding: 10px 9px;
+  text-align: left;
+  vertical-align: top;
+}
+th {
+  color: #4b5961;
+  font-size: 0.82rem;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+td { font-size: 0.94rem; }
+code {
+  background: #edf2f3;
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+a { color: var(--blue); }
+ul {
+  margin: 0;
+  padding-left: 20px;
+}
+li { margin: 8px 0; }
+.callout {
+  background: #f8fbfb;
+  border-left: 4px solid var(--blue);
+  padding: 14px 16px;
+}
+.bar-list {
+  display: grid;
+  gap: 11px;
+}
+.bar-row {
+  align-items: center;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(180px, 280px) minmax(120px, 1fr) 90px;
+}
+.bar-label {
+  color: #27343a;
+  font-size: 0.94rem;
+}
+.bar-track {
+  background: #e5ecef;
+  border-radius: 999px;
+  display: block;
+  height: 14px;
+  overflow: hidden;
+}
+.bar-fill {
+  background: linear-gradient(90deg, var(--green), var(--blue));
+  display: block;
+  height: 100%;
+}
+details summary {
+  cursor: pointer;
+  font-weight: 750;
+}
+.footer {
+  color: var(--muted);
+  margin: 24px 0 0;
+}
+@media (max-width: 820px) {
+  .hero { padding-top: 26px; }
+  .stats, .two-col { grid-template-columns: 1fr; }
+  section { padding: 16px; }
+  .bar-row {
+    align-items: start;
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+  .bar-row strong { font-size: 0.95rem; }
+  table { min-width: 640px; }
+}
+</style>
+</head>
+<body>
+<header class="hero">
+  <div class="hero-inner">
+    <p class="eyebrow">CUDA Kernel Gen report</p>
+    <h1>Baseline-preserving CUDA speedup with explicit ABI tradeoffs</h1>
+    <p class="lede">The strict original problem definition measured 13.0800 ms on this host. The safe drop-in path keeps float input/output semantics; the faster compact paths are separate choices for clients that can change storage or downstream consumption.</p>
+    <div class="stats">
+      <div class="stat"><span class="stat-label">Strict original baseline</span><strong>13.0800 ms</strong><span class="stat-note">problem definition</span></div>
+      <div class="stat"><span class="stat-label">Drop-in float default</span><strong>0.3099 ms</strong><span class="stat-note">42.2x</span></div>
+      <div class="stat"><span class="stat-label">FP16 output path</span><strong>0.2571 ms</strong><span class="stat-note">ABI-changing</span></div>
+      <div class="stat"><span class="stat-label">Compact U8 in/out</span><strong>0.0241 ms</strong><span class="stat-note">542.7x</span></div>
+    </div>
+  </div>
+</header>
+<main>
+  <section>
+    <h2>Executive Readout</h2>
+    <div class="two-col">
+      <div>
+        <p>The original benchmark computes a fixed 8192 x 8192 float grid. Each element performs five dependent iterations of log, cos, sin, or tan selected by <code>ix % 4</code>, and correctness is checked against the existing 1e-3 relative tolerance.</p>
+        <p>The drop-in recommendation is <code>vector4_coalesced_fast</code>: it preserves float in/out behavior while replacing the row-stride access pattern with contiguous vectorized work.</p>
+      </div>
+      <div class="callout">
+        <p><strong>Client decision:</strong> use the float default when the ABI must stay unchanged. Consider FP16 output, compact U8 input, or compact U8 output only when the surrounding system can own that data contract.</p>
+        <p class="muted">The report separates speedups against the strict original baseline from speedups against the in-harness row-stride ablation.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Key Results</h2>
+    <div class="table-wrap "><table><thead><tr><th>Variant</th><th>Role</th><th>Correct</th><th>Median time</th><th>Speedup vs strict baseline</th><th>Speedup vs row-stride</th><th>Logical traffic</th></tr></thead><tbody><tr><td data-label="Variant">Original row-stride ablation</td><td data-label="Role">Drop-in reference</td><td data-label="Correct">yes</td><td data-label="Median time">6.5958 ms</td><td data-label="Speedup vs strict baseline">2.0x</td><td data-label="Speedup vs row-stride">1.0x</td><td data-label="Logical traffic">512.0 MiB</td></tr><tr><td data-label="Variant">Vectorized float default</td><td data-label="Role">Drop-in recommendation</td><td data-label="Correct">yes</td><td data-label="Median time">0.3099 ms</td><td data-label="Speedup vs strict baseline">42.2x</td><td data-label="Speedup vs row-stride">21.3x</td><td data-label="Logical traffic">512.0 MiB</td></tr><tr><td data-label="Variant">Affine float default</td><td data-label="Role">Benchmark-specialized float path</td><td data-label="Correct">yes</td><td data-label="Median time">0.3095 ms</td><td data-label="Speedup vs strict baseline">42.3x</td><td data-label="Speedup vs row-stride">21.3x</td><td data-label="Logical traffic">512.0 MiB</td></tr><tr><td data-label="Variant">FP16 output</td><td data-label="Role">ABI-changing output reduction</td><td data-label="Correct">yes</td><td data-label="Median time">0.2571 ms</td><td data-label="Speedup vs strict baseline">50.9x</td><td data-label="Speedup vs row-stride">25.7x</td><td data-label="Logical traffic">256.0 MiB</td></tr><tr><td data-label="Variant">Compact U8 input + FP16 output</td><td data-label="Role">ABI-changing input reduction</td><td data-label="Correct">yes</td><td data-label="Median time">0.1046 ms</td><td data-label="Speedup vs strict baseline">125.0x</td><td data-label="Speedup vs row-stride">63.1x</td><td data-label="Logical traffic">160.0 MiB</td></tr><tr><td data-label="Variant">Compact U8 input + U8 output</td><td data-label="Role">Strongest specialized ABI</td><td data-label="Correct">yes</td><td data-label="Median time">0.0241 ms</td><td data-label="Speedup vs strict baseline">542.7x</td><td data-label="Speedup vs row-stride">273.7x</td><td data-label="Logical traffic">64.0 MiB</td></tr><tr><td data-label="Variant">Float output + score pipeline</td><td data-label="Role">Expanded downstream consumer</td><td data-label="Correct">yes</td><td data-label="Median time">0.5786 ms</td><td data-label="Speedup vs strict baseline">22.6x</td><td data-label="Speedup vs row-stride">11.4x</td><td data-label="Logical traffic">832.0 MiB</td></tr><tr><td data-label="Variant">Compact U8 output + score pipeline</td><td data-label="Role">Compact downstream consumer</td><td data-label="Correct">yes</td><td data-label="Median time">0.2868 ms</td><td data-label="Speedup vs strict baseline">45.6x</td><td data-label="Speedup vs row-stride">23.0x</td><td data-label="Logical traffic">448.0 MiB</td></tr></tbody></table></div>
+  </section>
+
+  <section>
+    <h2>Recommendations</h2>
+    <ul><li>Nsight shows high DRAM pressure with modest SM utilization; prioritize byte/sector reductions over extra arithmetic work.</li><li>Polynomial/affine math removal does not materially beat the default float-output vector kernel on this run.</li><li>FP16 output improves runtime, so output traffic is a useful ABI-changing optimization axis on this device.</li><li>Compact x/w input gives a large kernel-side win; verify producer layout or packing amortization before treating it as end-to-end.</li><li>U16 fixed-point x/w input improves over FP32 compact x/w on this memory-bound run while preserving the benchmark tolerance.</li><li>U8 fixed-point x/w input improves over U16 compact x/w on this memory-bound run while staying inside tolerance.</li><li>Custom U8 x/w output improves over FP16 output by attacking the remaining write traffic; this is a strongly ABI-changing path.</li><li>A downstream consumer that stays in compact U8 x/w form is much cheaper than consuming expanded float4 output.</li><li>Even when U8 input packing is paid every launch, the compact-output pipeline wins if downstream consumes compact form directly.</li><li>The problem fits one GPU with headroom; multi-GPU work should be gated on throughput goals and measured transfer/reduction overhead. The detected GPU-to-GPU path does not include NVLink, so multi-GPU runs are most meaningful when data is already sharded by GPU, when the working set requires capacity, or when throughput matters more than a gather-heavy single-result benchmark.</li></ul>
+  </section>
+
+  <section>
+    <h2>Multi-GPU Readout</h2>
+    <p>2 GPUs were detected, but the GPU-to-GPU path is PHB, not NVLink. For this pointwise kernel, multi-GPU is still meaningful for capacity or for a production pipeline that already shards rows per GPU. It is less meaningful as a single-job speedup if every launch must gather outputs through host/PCIe.</p>
+    <div class="table-wrap "><table><thead><tr><th>GPU</th><th>Name</th><th>Rows</th><th>Row count</th><th>Harness shard</th><th>Usable memory</th><th>Fits</th></tr></thead><tbody><tr><td data-label="GPU">0</td><td data-label="Name">NVIDIA RTX PRO 6000 Blackwell Server Edition</td><td data-label="Rows">0-4096</td><td data-label="Row count">4096</td><td data-label="Harness shard">392.00 MiB</td><td data-label="Usable memory">83203.95 MiB</td><td data-label="Fits">yes</td></tr><tr><td data-label="GPU">1</td><td data-label="Name">NVIDIA RTX PRO 6000 Blackwell Server Edition</td><td data-label="Rows">4096-8192</td><td data-label="Row count">4096</td><td data-label="Harness shard">392.00 MiB</td><td data-label="Usable memory">83203.95 MiB</td><td data-label="Fits">yes</td></tr></tbody></table></div>
+    <details>
+      <summary>Memory models used for capacity planning</summary>
+      <div class="table-wrap "><table><thead><tr><th>Model</th><th>Bytes/element</th><th>Total</th><th>Meaning</th></tr></thead><tbody><tr><td data-label="Model">current_harness_device_allocations</td><td data-label="Bytes/element">12.25</td><td data-label="Total">784.0 MiB</td><td data-label="Meaning">Current benchmark allocates float input/output plus FP16 output, U8 output, downstream score output, and float, FP16, u16, u8, and u4 compact x/w scratch buffers.</td></tr><tr><td data-label="Model">float_inplace_default</td><td data-label="Bytes/element">4.00</td><td data-label="Total">256.0 MiB</td><td data-label="Meaning">Production minimum for the float in-place default kernel.</td></tr><tr><td data-label="Model">float_input_fp16_output</td><td data-label="Bytes/element">6.00</td><td data-label="Total">384.0 MiB</td><td data-label="Meaning">ABI-changing path with float input retained and FP16 output.</td></tr><tr><td data-label="Model">compact_xw_input_fp16_output</td><td data-label="Bytes/element">4.00</td><td data-label="Total">256.0 MiB</td><td data-label="Meaning">Upper-bound compact consumer: compact x/w input plus FP16 output.</td></tr><tr><td data-label="Model">compact_half_or_u16_xw_input_fp16_output</td><td data-label="Bytes/element">3.00</td><td data-label="Total">192.0 MiB</td><td data-label="Meaning">Quantized compact consumer: two 16-bit x/w inputs per four outputs plus FP16 output.</td></tr><tr><td data-label="Model">compact_u8_xw_input_fp16_output</td><td data-label="Bytes/element">2.50</td><td data-label="Total">160.0 MiB</td><td data-label="Meaning">Aggressively quantized compact consumer: two 8-bit x/w inputs per four outputs plus FP16 output.</td></tr><tr><td data-label="Model">compact_u8_xw_input_u8_xw_output</td><td data-label="Bytes/element">1.00</td><td data-label="Total">64.0 MiB</td><td data-label="Meaning">Fully benchmark-specialized ABI: U8 x/w input plus U8 x/w output with y/z as implicit constants.</td></tr><tr><td data-label="Model">compact_u8_xw_output_score</td><td data-label="Bytes/element">1.50</td><td data-label="Total">96.0 MiB</td><td data-label="Meaning">Compact U8 x/w output consumed directly into one float score per four elements.</td></tr><tr><td data-label="Model">compact_u4_xw_input_fp16_output_expected_fail</td><td data-label="Bytes/element">2.25</td><td data-label="Total">144.0 MiB</td><td data-label="Meaning">Boundary-only compact consumer: two 4-bit x/w inputs per four outputs plus FP16 output; expected to miss tolerance.</td></tr></tbody></table></div>
+    </details>
+  </section>
+
+  <section>
+    <h2>Hardware</h2>
+    <div class="table-wrap "><table><thead><tr><th>Item</th><th>Value</th></tr></thead><tbody><tr><td data-label="Item">GPU</td><td data-label="Value">NVIDIA RTX PRO 6000 Blackwell Server Edition</td></tr><tr><td data-label="Item">Compute capability</td><td data-label="Value">12.0</td></tr><tr><td data-label="Item">Device count</td><td data-label="Value">2</td></tr><tr><td data-label="Item">Driver</td><td data-label="Value">580.126.09</td></tr><tr><td data-label="Item">CUDA compiler</td><td data-label="Value">Cuda compilation tools, release 12.8, V12.8.93</td></tr><tr><td data-label="Item">Problem size</td><td data-label="Value">8192 x 8192</td></tr><tr><td data-label="Item">Tolerance contract</td><td data-label="Value">1e-3 relative tolerance</td></tr><tr><td data-label="Item">Scaling status</td><td data-label="Value">throughput-scaling-only</td></tr></tbody></table></div>
+  </section>
+
+  <section><h2>Time Per Launch</h2><div class="bar-list"><div class="bar-row"><span class="bar-label">Original row-stride ablation</span><span class="bar-track"><span class="bar-fill" style="width: 100.00%"></span></span><strong>6.5958 ms</strong></div><div class="bar-row"><span class="bar-label">Vectorized float default</span><span class="bar-track"><span class="bar-fill" style="width: 4.70%"></span></span><strong>0.3099 ms</strong></div><div class="bar-row"><span class="bar-label">Affine float default</span><span class="bar-track"><span class="bar-fill" style="width: 4.69%"></span></span><strong>0.3095 ms</strong></div><div class="bar-row"><span class="bar-label">FP16 output</span><span class="bar-track"><span class="bar-fill" style="width: 3.90%"></span></span><strong>0.2571 ms</strong></div><div class="bar-row"><span class="bar-label">Compact U8 input + FP16 output</span><span class="bar-track"><span class="bar-fill" style="width: 1.59%"></span></span><strong>0.1046 ms</strong></div><div class="bar-row"><span class="bar-label">Compact U8 input + U8 output</span><span class="bar-track"><span class="bar-fill" style="width: 1.00%"></span></span><strong>0.0241 ms</strong></div></div></section>
+  <section><h2>Speedup Vs Strict Original</h2><div class="bar-list"><div class="bar-row"><span class="bar-label">Vectorized float default</span><span class="bar-track"><span class="bar-fill" style="width: 7.78%"></span></span><strong>42.2x</strong></div><div class="bar-row"><span class="bar-label">Affine float default</span><span class="bar-track"><span class="bar-fill" style="width: 7.79%"></span></span><strong>42.3x</strong></div><div class="bar-row"><span class="bar-label">FP16 output</span><span class="bar-track"><span class="bar-fill" style="width: 9.37%"></span></span><strong>50.9x</strong></div><div class="bar-row"><span class="bar-label">Compact U8 input + FP16 output</span><span class="bar-track"><span class="bar-fill" style="width: 23.04%"></span></span><strong>125.0x</strong></div><div class="bar-row"><span class="bar-label">Compact U8 input + U8 output</span><span class="bar-track"><span class="bar-fill" style="width: 100.00%"></span></span><strong>542.7x</strong></div></div></section>
+
+  <section>
+    <h2>Profiler Evidence</h2>
+    <div class="table-wrap "><table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody><tr><td data-label="Metric">Nsight status</td><td data-label="Value">ok</td></tr><tr><td data-label="Metric">Kernel</td><td data-label="Value">void kernel_vector4_fast&lt;5&gt;(float4 *, int)</td></tr><tr><td data-label="Metric">NCU duration</td><td data-label="Value">318.02 us</td></tr><tr><td data-label="Metric">DRAM throughput</td><td data-label="Value">91.61%</td></tr><tr><td data-label="Metric">SM throughput</td><td data-label="Value">48.19%</td></tr><tr><td data-label="Metric">Achieved occupancy</td><td data-label="Value">85.76%</td></tr><tr><td data-label="Metric">Registers/thread</td><td data-label="Value">26</td></tr><tr><td data-label="Metric">L1 global load sectors</td><td data-label="Value">8388608</td></tr><tr><td data-label="Metric">L1 global store sectors</td><td data-label="Value">8388608</td></tr><tr><td data-label="Metric">L2 read sectors</td><td data-label="Value">8392195</td></tr><tr><td data-label="Metric">L2 write sectors</td><td data-label="Value">8388740</td></tr></tbody></table></div>
+  </section>
+
+  <section>
+    <h2>Kernel Resource Footprint</h2>
+    <div class="table-wrap "><table><thead><tr><th>Variant</th><th>Registers</th><th>Stack bytes</th><th>Spill stores</th><th>Spill loads</th></tr></thead><tbody><tr><td data-label="Variant"><code>vector4_coalesced_fast</code></td><td data-label="Registers">26</td><td data-label="Stack bytes">0</td><td data-label="Spill stores">0</td><td data-label="Spill loads">0</td></tr><tr><td data-label="Variant"><code>vector4_ilp_fast</code></td><td data-label="Registers">37</td><td data-label="Stack bytes">0</td><td data-label="Spill stores">0</td><td data-label="Spill loads">0</td></tr><tr><td data-label="Variant"><code>scalar_coalesced_fast</code></td><td data-label="Registers">21</td><td data-label="Stack bytes">0</td><td data-label="Spill stores">0</td><td data-label="Spill loads">0</td></tr><tr><td data-label="Variant"><code>scalar_fast_half_output_fallback</code></td><td data-label="Registers">17</td><td data-label="Stack bytes">0</td><td data-label="Spill stores">0</td><td data-label="Spill loads">0</td></tr><tr><td data-label="Variant"><code>vector4_dynamic_fallback</code></td><td data-label="Registers">25</td><td data-label="Stack bytes">0</td><td data-label="Spill stores">0</td><td data-label="Spill loads">0</td></tr><tr><td data-label="Variant"><code>consume_u8_xw_output_experimental</code></td><td data-label="Registers">27</td><td data-label="Stack bytes">0</td><td data-label="Spill stores">0</td><td data-label="Spill loads">0</td></tr><tr><td data-label="Variant"><code>consume_float_output_experimental</code></td><td data-label="Registers">28</td><td data-label="Stack bytes">0</td><td data-label="Spill stores">0</td><td data-label="Spill loads">0</td></tr><tr><td data-label="Variant"><code>decode_u8_xw_output_to_float_experimental</code></td><td data-label="Registers">34</td><td data-label="Stack bytes">0</td><td data-label="Spill stores">0</td><td data-label="Spill loads">0</td></tr><tr><td data-label="Variant"><code>compact_u8_xw_affine_u8_xw_output_experimental</code></td><td data-label="Registers">16</td><td data-label="Stack bytes">0</td><td data-label="Spill stores">0</td><td data-label="Spill loads">0</td></tr><tr><td data-label="Variant"><code>compact_u4_xw_affine_half_output_expected_fail</code></td><td data-label="Registers">36</td><td data-label="Stack bytes">0</td><td data-label="Spill stores">0</td><td data-label="Spill loads">0</td></tr><tr><td data-label="Variant"><code>compact_u8_xw_affine_half_output_experimental</code></td><td data-label="Registers">28</td><td data-label="Stack bytes">0</td><td data-label="Spill stores">0</td><td data-label="Spill loads">0</td></tr><tr><td data-label="Variant"><code>compact_u16_xw_affine_half_output_experimental</code></td><td data-label="Registers">28</td><td data-label="Stack bytes">0</td><td data-label="Spill stores">0</td><td data-label="Spill loads">0</td></tr><tr><td data-label="Variant"><code>compact_half_xw_affine_half_output_expected_fail</code></td><td data-label="Registers">28</td><td data-label="Stack bytes">0</td><td data-label="Spill stores">0</td><td data-label="Spill loads">0</td></tr><tr><td data-label="Variant"><code>compact_xw_affine_half_output_experimental</code></td><td data-label="Registers">30</td><td data-label="Stack bytes">0</td><td data-label="Spill stores">0</td><td data-label="Spill loads">0</td></tr><tr><td data-label="Variant"><code>vector4_affine_half_output_packed_experimental</code></td><td data-label="Registers">28</td><td data-label="Stack bytes">0</td><td data-label="Spill stores">0</td><td data-label="Spill loads">0</td></tr><tr><td data-label="Variant"><code>vector4_affine_half_output_sparse_experimental</code></td><td data-label="Registers">30</td><td data-label="Stack bytes">0</td><td data-label="Spill stores">0</td><td data-label="Spill loads">0</td></tr><tr><td data-label="Variant"><code>vector4_affine_half_output_loaded_experimental</code></td><td data-label="Registers">28</td><td data-label="Stack bytes">0</td><td data-label="Spill stores">0</td><td data-label="Spill loads">0</td></tr><tr><td data-label="Variant"><code>vector4_affine_loaded_fixed_range_experimental</code></td><td data-label="Registers">22</td><td data-label="Stack bytes">0</td><td data-label="Spill stores">0</td><td data-label="Spill loads">0</td></tr><tr><td data-label="Variant"><code>vector4_affine_sparse_fixed_range_experimental</code></td><td data-label="Registers">24</td><td data-label="Stack bytes">0</td><td data-label="Spill stores">0</td><td data-label="Spill loads">0</td></tr><tr><td data-label="Variant"><code>vector4_poly5_sparse_fixed_range_experimental</code></td><td data-label="Registers">24</td><td data-label="Stack bytes">0</td><td data-label="Spill stores">0</td><td data-label="Spill loads">0</td></tr><tr><td data-label="Variant"><code>vector4_poly5_unchecked_fixed_range_experimental</code></td><td data-label="Registers">26</td><td data-label="Stack bytes">0</td><td data-label="Spill stores">0</td><td data-label="Spill loads">0</td></tr><tr><td data-label="Variant"><code>vector4_poly5_fixed_range_experimental</code></td><td data-label="Registers">22</td><td data-label="Stack bytes">0</td><td data-label="Spill stores">0</td><td data-label="Spill loads">0</td></tr><tr><td data-label="Variant"><code>scalar_dynamic_fallback</code></td><td data-label="Registers">18</td><td data-label="Stack bytes">0</td><td data-label="Spill stores">0</td><td data-label="Spill loads">0</td></tr><tr><td data-label="Variant"><code>original_row_stride</code></td><td data-label="Registers">20</td><td data-label="Stack bytes">0</td><td data-label="Spill stores">0</td><td data-label="Spill loads">0</td></tr></tbody></table></div>
+  </section>
+
+  <section>
+    <h2>All Timed Variants</h2>
+    <details open>
+      <summary>Show benchmark table</summary>
+      <div class="table-wrap "><table><thead><tr><th>Variant</th><th>Correct</th><th>Median time</th><th>Speedup vs strict baseline</th><th>Speedup vs row-stride</th><th>Logical traffic</th><th>Effective bandwidth</th></tr></thead><tbody><tr><td data-label="Variant"><code>compact_half_xw_affine_half_output_expected_fail</code></td><td data-label="Correct">no</td><td data-label="Median time">0.1209 ms</td><td data-label="Speedup vs strict baseline">108.2x</td><td data-label="Speedup vs row-stride">54.6x</td><td data-label="Logical traffic">192.0 MiB</td><td data-label="Effective bandwidth">1665.2 GB/s</td></tr><tr><td data-label="Variant"><code>compact_u16_xw_affine_half_output_experimental</code></td><td data-label="Correct">yes</td><td data-label="Median time">0.1238 ms</td><td data-label="Speedup vs strict baseline">105.7x</td><td data-label="Speedup vs row-stride">53.3x</td><td data-label="Logical traffic">192.0 MiB</td><td data-label="Effective bandwidth">1626.2 GB/s</td></tr><tr><td data-label="Variant"><code>compact_u16_xw_with_gpu_pack_pipeline_experimental</code></td><td data-label="Correct">yes</td><td data-label="Median time">0.3528 ms</td><td data-label="Speedup vs strict baseline">37.1x</td><td data-label="Speedup vs row-stride">18.7x</td><td data-label="Logical traffic">448.0 MiB</td><td data-label="Effective bandwidth">1331.5 GB/s</td></tr><tr><td data-label="Variant"><code>compact_u4_xw_affine_half_output_expected_fail</code></td><td data-label="Correct">no</td><td data-label="Median time">0.0996 ms</td><td data-label="Speedup vs strict baseline">131.3x</td><td data-label="Speedup vs row-stride">66.2x</td><td data-label="Logical traffic">144.0 MiB</td><td data-label="Effective bandwidth">1516.0 GB/s</td></tr><tr><td data-label="Variant"><code>compact_u8_xw_affine_half_output_experimental</code></td><td data-label="Correct">yes</td><td data-label="Median time">0.1046 ms</td><td data-label="Speedup vs strict baseline">125.0x</td><td data-label="Speedup vs row-stride">63.1x</td><td data-label="Logical traffic">160.0 MiB</td><td data-label="Effective bandwidth">1603.9 GB/s</td></tr><tr><td data-label="Variant"><code>compact_u8_xw_affine_u8_xw_output_experimental</code></td><td data-label="Correct">yes</td><td data-label="Median time">0.0241 ms</td><td data-label="Speedup vs strict baseline">542.7x</td><td data-label="Speedup vs row-stride">273.7x</td><td data-label="Logical traffic">64.0 MiB</td><td data-label="Effective bandwidth">2784.6 GB/s</td></tr><tr><td data-label="Variant"><code>compact_u8_xw_u8_output_consumer_with_gpu_pack_pipeline_experimental</code></td><td data-label="Correct">yes</td><td data-label="Median time">0.2868 ms</td><td data-label="Speedup vs strict baseline">45.6x</td><td data-label="Speedup vs row-stride">23.0x</td><td data-label="Logical traffic">448.0 MiB</td><td data-label="Effective bandwidth">1637.9 GB/s</td></tr><tr><td data-label="Variant"><code>compact_u8_xw_u8_output_decode_with_gpu_pack_pipeline_experimental</code></td><td data-label="Correct">yes</td><td data-label="Median time">0.4355 ms</td><td data-label="Speedup vs strict baseline">30.0x</td><td data-label="Speedup vs row-stride">15.1x</td><td data-label="Logical traffic">576.0 MiB</td><td data-label="Effective bandwidth">1386.9 GB/s</td></tr><tr><td data-label="Variant"><code>compact_u8_xw_u8_output_with_gpu_pack_pipeline_experimental</code></td><td data-label="Correct">yes</td><td data-label="Median time">0.2489 ms</td><td data-label="Speedup vs strict baseline">52.6x</td><td data-label="Speedup vs row-stride">26.5x</td><td data-label="Logical traffic">320.0 MiB</td><td data-label="Effective bandwidth">1348.1 GB/s</td></tr><tr><td data-label="Variant"><code>compact_u8_xw_with_gpu_pack_pipeline_experimental</code></td><td data-label="Correct">yes</td><td data-label="Median time">0.3096 ms</td><td data-label="Speedup vs strict baseline">42.2x</td><td data-label="Speedup vs row-stride">21.3x</td><td data-label="Logical traffic">416.0 MiB</td><td data-label="Effective bandwidth">1408.9 GB/s</td></tr><tr><td data-label="Variant"><code>compact_xw_affine_half_output_experimental</code></td><td data-label="Correct">yes</td><td data-label="Median time">0.1688 ms</td><td data-label="Speedup vs strict baseline">77.5x</td><td data-label="Speedup vs row-stride">39.1x</td><td data-label="Logical traffic">256.0 MiB</td><td data-label="Effective bandwidth">1590.3 GB/s</td></tr><tr><td data-label="Variant"><code>compact_xw_with_gpu_pack_pipeline_experimental</code></td><td data-label="Correct">yes</td><td data-label="Median time">0.4440 ms</td><td data-label="Speedup vs strict baseline">29.5x</td><td data-label="Speedup vs row-stride">14.9x</td><td data-label="Logical traffic">512.0 MiB</td><td data-label="Effective bandwidth">1209.2 GB/s</td></tr><tr><td data-label="Variant"><code>consume_float_output_experimental</code></td><td data-label="Correct">yes</td><td data-label="Median time">0.2122 ms</td><td data-label="Speedup vs strict baseline">61.6x</td><td data-label="Speedup vs row-stride">31.1x</td><td data-label="Logical traffic">320.0 MiB</td><td data-label="Effective bandwidth">1581.3 GB/s</td></tr><tr><td data-label="Variant"><code>consume_u8_xw_output_experimental</code></td><td data-label="Correct">yes</td><td data-label="Median time">0.0265 ms</td><td data-label="Speedup vs strict baseline">493.6x</td><td data-label="Speedup vs row-stride">248.9x</td><td data-label="Logical traffic">96.0 MiB</td><td data-label="Effective bandwidth">3798.6 GB/s</td></tr><tr><td data-label="Variant"><code>decode_u8_xw_output_to_float_experimental</code></td><td data-label="Correct">yes</td><td data-label="Median time">0.1966 ms</td><td data-label="Speedup vs strict baseline">66.5x</td><td data-label="Speedup vs row-stride">33.5x</td><td data-label="Logical traffic">288.0 MiB</td><td data-label="Effective bandwidth">1536.1 GB/s</td></tr><tr><td data-label="Variant"><code>original_row_stride</code></td><td data-label="Correct">yes</td><td data-label="Median time">6.5958 ms</td><td data-label="Speedup vs strict baseline">2.0x</td><td data-label="Speedup vs row-stride">1.0x</td><td data-label="Logical traffic">512.0 MiB</td><td data-label="Effective bandwidth">81.4 GB/s</td></tr><tr><td data-label="Variant"><code>pack_u16_xw_setup_experimental</code></td><td data-label="Correct">yes</td><td data-label="Median time">0.2110 ms</td><td data-label="Speedup vs strict baseline">62.0x</td><td data-label="Speedup vs row-stride">31.3x</td><td data-label="Logical traffic">320.0 MiB</td><td data-label="Effective bandwidth">1590.3 GB/s</td></tr><tr><td data-label="Variant"><code>pack_u8_xw_setup_experimental</code></td><td data-label="Correct">yes</td><td data-label="Median time">0.1825 ms</td><td data-label="Speedup vs strict baseline">71.7x</td><td data-label="Speedup vs row-stride">36.1x</td><td data-label="Logical traffic">288.0 MiB</td><td data-label="Effective bandwidth">1654.7 GB/s</td></tr><tr><td data-label="Variant"><code>pack_xw_setup_experimental</code></td><td data-label="Correct">yes</td><td data-label="Median time">0.2569 ms</td><td data-label="Speedup vs strict baseline">50.9x</td><td data-label="Speedup vs row-stride">25.7x</td><td data-label="Logical traffic">384.0 MiB</td><td data-label="Effective bandwidth">1567.4 GB/s</td></tr><tr><td data-label="Variant"><code>scalar_coalesced_fast</code></td><td data-label="Correct">yes</td><td data-label="Median time">0.5099 ms</td><td data-label="Speedup vs strict baseline">25.7x</td><td data-label="Speedup vs row-stride">12.9x</td><td data-label="Logical traffic">512.0 MiB</td><td data-label="Effective bandwidth">1052.9 GB/s</td></tr><tr><td data-label="Variant"><code>vector4_affine_half_output_loaded_experimental</code></td><td data-label="Correct">yes</td><td data-label="Median time">0.2572 ms</td><td data-label="Speedup vs strict baseline">50.9x</td><td data-label="Speedup vs row-stride">25.6x</td><td data-label="Logical traffic">384.0 MiB</td><td data-label="Effective bandwidth">1565.5 GB/s</td></tr><tr><td data-label="Variant"><code>vector4_affine_half_output_packed_experimental</code></td><td data-label="Correct">yes</td><td data-label="Median time">0.2571 ms</td><td data-label="Speedup vs strict baseline">50.9x</td><td data-label="Speedup vs row-stride">25.7x</td><td data-label="Logical traffic">384.0 MiB</td><td data-label="Effective bandwidth">1566.1 GB/s</td></tr><tr><td data-label="Variant"><code>vector4_affine_half_output_sparse_experimental</code></td><td data-label="Correct">yes</td><td data-label="Median time">0.2571 ms</td><td data-label="Speedup vs strict baseline">50.9x</td><td data-label="Speedup vs row-stride">25.7x</td><td data-label="Logical traffic">256.0 MiB</td><td data-label="Effective bandwidth">1044.1 GB/s</td></tr><tr><td data-label="Variant"><code>vector4_affine_loaded_fixed_range_experimental</code></td><td data-label="Correct">yes</td><td data-label="Median time">0.3095 ms</td><td data-label="Speedup vs strict baseline">42.3x</td><td data-label="Speedup vs row-stride">21.3x</td><td data-label="Logical traffic">512.0 MiB</td><td data-label="Effective bandwidth">1734.6 GB/s</td></tr><tr><td data-label="Variant"><code>vector4_affine_loaded_float_consumer_pipeline_experimental</code></td><td data-label="Correct">yes</td><td data-label="Median time">0.5786 ms</td><td data-label="Speedup vs strict baseline">22.6x</td><td data-label="Speedup vs row-stride">11.4x</td><td data-label="Logical traffic">832.0 MiB</td><td data-label="Effective bandwidth">1507.8 GB/s</td></tr><tr><td data-label="Variant"><code>vector4_affine_sparse_fixed_range_experimental</code></td><td data-label="Correct">yes</td><td data-label="Median time">0.3095 ms</td><td data-label="Speedup vs strict baseline">42.3x</td><td data-label="Speedup vs row-stride">21.3x</td><td data-label="Logical traffic">512.0 MiB</td><td data-label="Effective bandwidth">1734.6 GB/s</td></tr><tr><td data-label="Variant"><code>vector4_coalesced_fast</code></td><td data-label="Correct">yes</td><td data-label="Median time">0.3099 ms</td><td data-label="Speedup vs strict baseline">42.2x</td><td data-label="Speedup vs row-stride">21.3x</td><td data-label="Logical traffic">512.0 MiB</td><td data-label="Effective bandwidth">1732.4 GB/s</td></tr><tr><td data-label="Variant"><code>vector4_ilp_fast</code></td><td data-label="Correct">yes</td><td data-label="Median time">0.3423 ms</td><td data-label="Speedup vs strict baseline">38.2x</td><td data-label="Speedup vs row-stride">19.3x</td><td data-label="Logical traffic">512.0 MiB</td><td data-label="Effective bandwidth">1568.4 GB/s</td></tr><tr><td data-label="Variant"><code>vector4_poly5_fixed_range_experimental</code></td><td data-label="Correct">yes</td><td data-label="Median time">0.3093 ms</td><td data-label="Speedup vs strict baseline">42.3x</td><td data-label="Speedup vs row-stride">21.3x</td><td data-label="Logical traffic">512.0 MiB</td><td data-label="Effective bandwidth">1735.8 GB/s</td></tr><tr><td data-label="Variant"><code>vector4_poly5_sparse_fixed_range_experimental</code></td><td data-label="Correct">yes</td><td data-label="Median time">0.3093 ms</td><td data-label="Speedup vs strict baseline">42.3x</td><td data-label="Speedup vs row-stride">21.3x</td><td data-label="Logical traffic">512.0 MiB</td><td data-label="Effective bandwidth">1735.8 GB/s</td></tr><tr><td data-label="Variant"><code>vector4_poly5_unchecked_fixed_range_experimental</code></td><td data-label="Correct">yes</td><td data-label="Median time">0.3096 ms</td><td data-label="Speedup vs strict baseline">42.2x</td><td data-label="Speedup vs row-stride">21.3x</td><td data-label="Logical traffic">512.0 MiB</td><td data-label="Effective bandwidth">1734.1 GB/s</td></tr></tbody></table></div>
+    </details>
+  </section>
+
+  <section>
+    <h2>Artifacts</h2>
+    <div class="table-wrap "><table><thead><tr><th>File</th><th>Status</th></tr></thead><tbody><tr><td data-label="File"><a href="artifacts/client_summary.md">client_summary.md</a></td><td data-label="Status">present</td></tr><tr><td data-label="File"><a href="artifacts/summary.json">summary.json</a></td><td data-label="Status">present</td></tr><tr><td data-label="File"><a href="artifacts/space.json">space.json</a></td><td data-label="Status">present</td></tr><tr><td data-label="File"><a href="artifacts/hardware.json">hardware.json</a></td><td data-label="Status">present</td></tr><tr><td data-label="File"><a href="artifacts/timings.csv">timings.csv</a></td><td data-label="Status">present</td></tr><tr><td data-label="File"><a href="artifacts/baseline.json">baseline.json</a></td><td data-label="Status">present</td></tr><tr><td data-label="File"><a href="artifacts/ncu_raw.csv">ncu_raw.csv</a></td><td data-label="Status">present</td></tr><tr><td data-label="File"><a href="artifacts/ncu_memory_raw.csv">ncu_memory_raw.csv</a></td><td data-label="Status">present</td></tr><tr><td data-label="File"><a href="artifacts/ptxas.log">ptxas.log</a></td><td data-label="Status">present</td></tr></tbody></table></div>
+  </section>
+
+  <p class="footer">Generated from machine-readable benchmark artifacts in <code>reports/client-shadecloud-20260515T001248Z</code>.</p>
+</main>
+</body>
+</html>

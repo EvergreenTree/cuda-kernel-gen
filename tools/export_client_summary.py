@@ -108,6 +108,35 @@ def hardware_rows(summary, hardware):
     ]
 
 
+def baseline_rows(baseline, summary):
+    default = summary.get("variants", {}).get("vector4_coalesced_fast", {})
+    strict_ms = baseline.get("time_ms")
+    default_ms = default.get("median_ms")
+    if not strict_ms:
+        return [["Strict original baseline", "not captured"]]
+    speedup = strict_ms / default_ms if default_ms else None
+    return [
+        ["Strict original baseline", f"{strict_ms:.4f} ms"],
+        ["Drop-in vectorized default", f"{default_ms:.4f} ms" if default_ms else "n/a"],
+        [
+            "Drop-in speedup vs strict baseline",
+            f"{speedup:.2f}x" if speedup else "n/a",
+        ],
+    ]
+
+
+def topology_rows(hardware):
+    topology = hardware.get("topology", {})
+    scaling = hardware.get("scaling", {})
+    paths = ", ".join(topology.get("paths", [])) or "n/a"
+    return [
+        ["Topology status", topology.get("status", "n/a")],
+        ["GPU-to-GPU paths", paths],
+        ["NVLink detected", "yes" if topology.get("has_nvlink") else "no"],
+        ["Multi-GPU readout", scaling.get("recommendation", "n/a")],
+    ]
+
+
 def recommendation_notes(hardware):
     notes = hardware.get("classification", {}).get("notes", [])
     scaling_note = hardware.get("scaling", {}).get("recommendation")
@@ -126,6 +155,7 @@ def main():
     summary = read_json(output_dir / "summary.json", {})
     hardware = read_json(output_dir / "hardware.json", {})
     space = read_json(output_dir / "space.json", {})
+    baseline = read_json(output_dir / "baseline.json", {})
 
     ncu_status = space.get("ncu", {}).get("status", "missing")
     ncu_command = space.get("ncu", {}).get("command")
@@ -138,6 +168,10 @@ def main():
         "## Hardware",
         "",
         table(["Item", "Value"], hardware_rows(summary, hardware)),
+        "",
+        "## Baseline Contract",
+        "",
+        table(["Item", "Value"], baseline_rows(baseline, summary)),
         "",
         "## Key Variants",
         "",
@@ -184,6 +218,10 @@ def main():
 
     sections.extend(
         [
+            "",
+            "## Multi-GPU",
+            "",
+            table(["Item", "Value"], topology_rows(hardware)),
             "",
             "## Recommendations",
             "",

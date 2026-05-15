@@ -1,0 +1,323 @@
+{
+  "gpu": {
+    "name": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+    "compute_capability": "12.0",
+    "sms": 188
+  },
+  "dimx": 8192,
+  "dimy": 8192,
+  "nreps": 100,
+  "logical_bytes_per_launch": 536870912,
+  "variants": {
+    "compact_half_xw_affine_half_output_expected_fail": {
+      "correct": false,
+      "median_ms": 0.1209,
+      "min_ms": 0.1208,
+      "max_ms": 0.1211,
+      "samples": 3,
+      "logical_bytes_per_launch": 201326592,
+      "effective_bandwidth_gbps": 1665.2323573200993,
+      "speedup_vs_original_row_stride": 54.55583126550869
+    },
+    "compact_u16_xw_affine_half_output_experimental": {
+      "correct": true,
+      "median_ms": 0.1238,
+      "min_ms": 0.1235,
+      "max_ms": 0.1242,
+      "samples": 3,
+      "logical_bytes_per_launch": 201326592,
+      "effective_bandwidth_gbps": 1626.224491114701,
+      "speedup_vs_original_row_stride": 53.27786752827141
+    },
+    "compact_u16_xw_with_gpu_pack_pipeline_experimental": {
+      "correct": true,
+      "median_ms": 0.3528,
+      "min_ms": 0.3527,
+      "max_ms": 0.3534,
+      "samples": 3,
+      "logical_bytes_per_launch": 469762048,
+      "effective_bandwidth_gbps": 1331.5250793650794,
+      "speedup_vs_original_row_stride": 18.695578231292515
+    },
+    "compact_u4_xw_affine_half_output_expected_fail": {
+      "correct": false,
+      "median_ms": 0.0996,
+      "min_ms": 0.0993,
+      "max_ms": 0.0998,
+      "samples": 3,
+      "logical_bytes_per_launch": 150994944,
+      "effective_bandwidth_gbps": 1516.0134939759039,
+      "speedup_vs_original_row_stride": 66.22289156626506
+    },
+    "compact_u8_xw_affine_half_output_experimental": {
+      "correct": true,
+      "median_ms": 0.1046,
+      "min_ms": 0.1043,
+      "max_ms": 0.105,
+      "samples": 3,
+      "logical_bytes_per_launch": 167772160,
+      "effective_bandwidth_gbps": 1603.94034416826,
+      "speedup_vs_original_row_stride": 63.057361376673036
+    },
+    "compact_u8_xw_affine_u8_xw_output_experimental": {
+      "correct": true,
+      "median_ms": 0.0241,
+      "min_ms": 0.024,
+      "max_ms": 0.0244,
+      "samples": 3,
+      "logical_bytes_per_launch": 67108864,
+      "effective_bandwidth_gbps": 2784.600165975104,
+      "speedup_vs_original_row_stride": 273.6846473029046
+    },
+    "compact_u8_xw_u8_output_consumer_with_gpu_pack_pipeline_experimental": {
+      "correct": true,
+      "median_ms": 0.2868,
+      "min_ms": 0.2865,
+      "max_ms": 0.2869,
+      "samples": 3,
+      "logical_bytes_per_launch": 469762048,
+      "effective_bandwidth_gbps": 1637.9429846582984,
+      "speedup_vs_original_row_stride": 22.997907949790793
+    },
+    "compact_u8_xw_u8_output_decode_with_gpu_pack_pipeline_experimental": {
+      "correct": true,
+      "median_ms": 0.4355,
+      "min_ms": 0.435,
+      "max_ms": 0.4359,
+      "samples": 3,
+      "logical_bytes_per_launch": 603979776,
+      "effective_bandwidth_gbps": 1386.8651572904707,
+      "speedup_vs_original_row_stride": 15.145350172215844
+    },
+    "compact_u8_xw_u8_output_with_gpu_pack_pipeline_experimental": {
+      "correct": true,
+      "median_ms": 0.2489,
+      "min_ms": 0.2487,
+      "max_ms": 0.2492,
+      "samples": 3,
+      "logical_bytes_per_launch": 335544320,
+      "effective_bandwidth_gbps": 1348.108959421454,
+      "speedup_vs_original_row_stride": 26.499799116110886
+    },
+    "compact_u8_xw_with_gpu_pack_pipeline_experimental": {
+      "correct": true,
+      "median_ms": 0.3096,
+      "min_ms": 0.3096,
+      "max_ms": 0.3099,
+      "samples": 3,
+      "logical_bytes_per_launch": 436207616,
+      "effective_bandwidth_gbps": 1408.9393281653747,
+      "speedup_vs_original_row_stride": 21.30426356589147
+    },
+    "compact_xw_affine_half_output_experimental": {
+      "correct": true,
+      "median_ms": 0.1688,
+      "min_ms": 0.1682,
+      "max_ms": 0.1689,
+      "samples": 3,
+      "logical_bytes_per_launch": 268435456,
+      "effective_bandwidth_gbps": 1590.2574407582938,
+      "speedup_vs_original_row_stride": 39.07464454976303
+    },
+    "compact_xw_with_gpu_pack_pipeline_experimental": {
+      "correct": true,
+      "median_ms": 0.444,
+      "min_ms": 0.4438,
+      "max_ms": 0.4441,
+      "samples": 3,
+      "logical_bytes_per_launch": 536870912,
+      "effective_bandwidth_gbps": 1209.1687207207208,
+      "speedup_vs_original_row_stride": 14.855405405405405
+    },
+    "consume_float_output_experimental": {
+      "correct": true,
+      "median_ms": 0.2122,
+      "min_ms": 0.2116,
+      "max_ms": 0.2123,
+      "samples": 3,
+      "logical_bytes_per_launch": 335544320,
+      "effective_bandwidth_gbps": 1581.264467483506,
+      "speedup_vs_original_row_stride": 31.082940622054664
+    },
+    "consume_u8_xw_output_experimental": {
+      "correct": true,
+      "median_ms": 0.0265,
+      "min_ms": 0.0264,
+      "max_ms": 0.0268,
+      "samples": 3,
+      "logical_bytes_per_launch": 100663296,
+      "effective_bandwidth_gbps": 3798.6149433962264,
+      "speedup_vs_original_row_stride": 248.89811320754717
+    },
+    "decode_u8_xw_output_to_float_experimental": {
+      "correct": true,
+      "median_ms": 0.1966,
+      "min_ms": 0.1963,
+      "max_ms": 0.1968,
+      "samples": 3,
+      "logical_bytes_per_launch": 301989888,
+      "effective_bandwidth_gbps": 1536.0625025432348,
+      "speedup_vs_original_row_stride": 33.54933875890132
+    },
+    "original_row_stride": {
+      "correct": true,
+      "median_ms": 6.5958,
+      "min_ms": 6.5746,
+      "max_ms": 6.599,
+      "samples": 3,
+      "logical_bytes_per_launch": 536870912,
+      "effective_bandwidth_gbps": 81.39587495072622,
+      "speedup_vs_original_row_stride": 1.0
+    },
+    "pack_u16_xw_setup_experimental": {
+      "correct": true,
+      "median_ms": 0.211,
+      "min_ms": 0.2106,
+      "max_ms": 0.2111,
+      "samples": 3,
+      "logical_bytes_per_launch": 335544320,
+      "effective_bandwidth_gbps": 1590.2574407582938,
+      "speedup_vs_original_row_stride": 31.259715639810427
+    },
+    "pack_u8_xw_setup_experimental": {
+      "correct": true,
+      "median_ms": 0.1825,
+      "min_ms": 0.1821,
+      "max_ms": 0.1826,
+      "samples": 3,
+      "logical_bytes_per_launch": 301989888,
+      "effective_bandwidth_gbps": 1654.739112328767,
+      "speedup_vs_original_row_stride": 36.1413698630137
+    },
+    "pack_xw_setup_experimental": {
+      "correct": true,
+      "median_ms": 0.2569,
+      "min_ms": 0.2565,
+      "max_ms": 0.257,
+      "samples": 3,
+      "logical_bytes_per_launch": 402653184,
+      "effective_bandwidth_gbps": 1567.3537718956793,
+      "speedup_vs_original_row_stride": 25.674581549240948
+    },
+    "scalar_coalesced_fast": {
+      "correct": true,
+      "median_ms": 0.5099,
+      "min_ms": 0.5082,
+      "max_ms": 0.5101,
+      "samples": 3,
+      "logical_bytes_per_launch": 536870912,
+      "effective_bandwidth_gbps": 1052.8945126495391,
+      "speedup_vs_original_row_stride": 12.93547754461659
+    },
+    "vector4_affine_half_output_loaded_experimental": {
+      "correct": true,
+      "median_ms": 0.2572,
+      "min_ms": 0.2571,
+      "max_ms": 0.2575,
+      "samples": 3,
+      "logical_bytes_per_launch": 402653184,
+      "effective_bandwidth_gbps": 1565.5255987558323,
+      "speedup_vs_original_row_stride": 25.644634525660965
+    },
+    "vector4_affine_half_output_packed_experimental": {
+      "correct": true,
+      "median_ms": 0.2571,
+      "min_ms": 0.2566,
+      "max_ms": 0.2572,
+      "samples": 3,
+      "logical_bytes_per_launch": 402653184,
+      "effective_bandwidth_gbps": 1566.1345157526252,
+      "speedup_vs_original_row_stride": 25.654609101516918
+    },
+    "vector4_affine_half_output_sparse_experimental": {
+      "correct": true,
+      "median_ms": 0.2571,
+      "min_ms": 0.2567,
+      "max_ms": 0.2573,
+      "samples": 3,
+      "logical_bytes_per_launch": 268435456,
+      "effective_bandwidth_gbps": 1044.089677168417,
+      "speedup_vs_original_row_stride": 25.654609101516918
+    },
+    "vector4_affine_loaded_fixed_range_experimental": {
+      "correct": true,
+      "median_ms": 0.3095,
+      "min_ms": 0.3089,
+      "max_ms": 0.3097,
+      "samples": 3,
+      "logical_bytes_per_launch": 536870912,
+      "effective_bandwidth_gbps": 1734.6394571890146,
+      "speedup_vs_original_row_stride": 21.311147011308563
+    },
+    "vector4_affine_loaded_float_consumer_pipeline_experimental": {
+      "correct": true,
+      "median_ms": 0.5786,
+      "min_ms": 0.5784,
+      "max_ms": 0.5787,
+      "samples": 3,
+      "logical_bytes_per_launch": 872415232,
+      "effective_bandwidth_gbps": 1507.8037193225027,
+      "speedup_vs_original_row_stride": 11.399585205668854
+    },
+    "vector4_affine_sparse_fixed_range_experimental": {
+      "correct": true,
+      "median_ms": 0.3095,
+      "min_ms": 0.309,
+      "max_ms": 0.3098,
+      "samples": 3,
+      "logical_bytes_per_launch": 536870912,
+      "effective_bandwidth_gbps": 1734.6394571890146,
+      "speedup_vs_original_row_stride": 21.311147011308563
+    },
+    "vector4_coalesced_fast": {
+      "correct": true,
+      "median_ms": 0.3099,
+      "min_ms": 0.3094,
+      "max_ms": 0.3101,
+      "samples": 3,
+      "logical_bytes_per_launch": 536870912,
+      "effective_bandwidth_gbps": 1732.4004904808003,
+      "speedup_vs_original_row_stride": 21.283639883833494
+    },
+    "vector4_ilp_fast": {
+      "correct": true,
+      "median_ms": 0.3423,
+      "min_ms": 0.3422,
+      "max_ms": 0.3426,
+      "samples": 3,
+      "logical_bytes_per_launch": 536870912,
+      "effective_bandwidth_gbps": 1568.4221793748175,
+      "speedup_vs_original_row_stride": 19.26906222611744
+    },
+    "vector4_poly5_fixed_range_experimental": {
+      "correct": true,
+      "median_ms": 0.3093,
+      "min_ms": 0.309,
+      "max_ms": 0.3093,
+      "samples": 3,
+      "logical_bytes_per_launch": 536870912,
+      "effective_bandwidth_gbps": 1735.7611121888133,
+      "speedup_vs_original_row_stride": 21.324927255092142
+    },
+    "vector4_poly5_sparse_fixed_range_experimental": {
+      "correct": true,
+      "median_ms": 0.3093,
+      "min_ms": 0.3092,
+      "max_ms": 0.3095,
+      "samples": 3,
+      "logical_bytes_per_launch": 536870912,
+      "effective_bandwidth_gbps": 1735.7611121888133,
+      "speedup_vs_original_row_stride": 21.324927255092142
+    },
+    "vector4_poly5_unchecked_fixed_range_experimental": {
+      "correct": true,
+      "median_ms": 0.3096,
+      "min_ms": 0.3092,
+      "max_ms": 0.3097,
+      "samples": 3,
+      "logical_bytes_per_launch": 536870912,
+      "effective_bandwidth_gbps": 1734.079173126615,
+      "speedup_vs_original_row_stride": 21.30426356589147
+    }
+  }
+}

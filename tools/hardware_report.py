@@ -3,6 +3,7 @@
 
 import argparse
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -86,6 +87,48 @@ def query_nvidia_smi():
             }
         )
     return {"status": "ok", "devices": devices, "device_count": len(devices)}
+
+
+def query_topology():
+    if shutil.which("nvidia-smi") is None:
+        return {"status": "missing"}
+
+    code, text = run(["nvidia-smi", "topo", "-m"])
+    if code != 0:
+        return {"status": "failed", "error": text}
+
+    clean = re.sub(r"\x1b\[[0-9;]*m", "", text)
+    lines = [line.strip() for line in clean.splitlines() if line.strip()]
+    matrix_lines = [line for line in lines if line.startswith("GPU")]
+    gpu_names = (
+        [token for token in matrix_lines[0].split() if re.fullmatch(r"GPU\d+", token)]
+        if matrix_lines
+        else []
+    )
+    interconnects = []
+
+    for line in matrix_lines[1:]:
+        parts = line.split()
+        if not parts:
+            continue
+        src = parts[0]
+        for index, value in enumerate(parts[1 : 1 + len(gpu_names)]):
+            if index >= len(gpu_names):
+                continue
+            dst = gpu_names[index]
+            if src == dst:
+                continue
+            interconnects.append({"source": src, "target": dst, "path": value})
+
+    has_nvlink = any(link["path"].startswith("NV") for link in interconnects)
+    paths = sorted({link["path"] for link in interconnects})
+    return {
+        "status": "ok",
+        "has_nvlink": has_nvlink,
+        "paths": paths,
+        "interconnects": interconnects,
+        "raw": clean,
+    }
 
 
 def query_nvcc():
@@ -190,7 +233,7 @@ def build_memory_models(dimx, dimy):
     ]
 
 
-def scaling_plan(nvidia_smi, dimx, dimy):
+def scaling_plan(nvidia_smi, dimx, dimy, topology=None):
     devices = nvidia_smi.get("devices", []) if nvidia_smi.get("status") == "ok" else []
     device_count = len(devices)
     elements = dimx * dimy
@@ -254,6 +297,21 @@ def scaling_plan(nvidia_smi, dimx, dimy):
         for part in result["partitions"]
     )
 
+    no_nvlink = (
+        device_count > 1
+        and topology
+        and topology.get("status") == "ok"
+        and not topology.get("has_nvlink")
+    )
+    interconnect_note = (
+        " The detected GPU-to-GPU path does not include NVLink, so multi-GPU "
+        "runs are most meaningful when data is already sharded by GPU, when "
+        "the working set requires capacity, or when throughput matters more "
+        "than a gather-heavy single-result benchmark."
+        if no_nvlink
+        else ""
+    )
+
     if device_count == 1:
         status = "single-gpu"
         recommendation = (
@@ -271,6 +329,7 @@ def scaling_plan(nvidia_smi, dimx, dimy):
         recommendation = (
             "The problem fits one GPU with headroom; multi-GPU work should be gated on "
             "throughput goals and measured transfer/reduction overhead."
+            + interconnect_note
         )
 
     result.update(
@@ -280,6 +339,7 @@ def scaling_plan(nvidia_smi, dimx, dimy):
             "fits_single_gpu_harness_with_headroom": fits_single,
             "fits_partitioned_harness_with_headroom": fits_partitioned,
             "recommendation": recommendation,
+            "interconnect_note": interconnect_note.strip() or None,
         }
     )
     return result
@@ -432,11 +492,12 @@ def main():
 
     result = {
         "nvidia_smi": query_nvidia_smi(),
+        "topology": query_topology(),
         "nvcc": query_nvcc(),
     }
     dimx, dimy = read_problem_size(summary)
     result["classification"] = classify(summary, space)
-    result["scaling"] = scaling_plan(result["nvidia_smi"], dimx, dimy)
+    result["scaling"] = scaling_plan(result["nvidia_smi"], dimx, dimy, result["topology"])
     (output_dir / "hardware.json").write_text(json.dumps(result, indent=2) + "\n")
     print(f"Wrote {output_dir / 'hardware.json'}")
 

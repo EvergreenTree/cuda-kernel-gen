@@ -1,0 +1,172 @@
+{
+  "nvidia_smi": {
+    "status": "ok",
+    "devices": [
+      {
+        "name": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+        "compute_capability": "12.0",
+        "memory_total_mib": 97887.0,
+        "max_memory_clock_mhz": 12481.0,
+        "max_sm_clock_mhz": 2430.0,
+        "driver_version": "580.126.09",
+        "power_limit_w": 600.0
+      },
+      {
+        "name": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+        "compute_capability": "12.0",
+        "memory_total_mib": 97887.0,
+        "max_memory_clock_mhz": 12481.0,
+        "max_sm_clock_mhz": 2430.0,
+        "driver_version": "580.126.09",
+        "power_limit_w": 600.0
+      }
+    ],
+    "device_count": 2
+  },
+  "topology": {
+    "status": "ok",
+    "has_nvlink": false,
+    "paths": [
+      "PHB"
+    ],
+    "interconnects": [
+      {
+        "source": "GPU0",
+        "target": "GPU1",
+        "path": "PHB"
+      },
+      {
+        "source": "GPU1",
+        "target": "GPU0",
+        "path": "PHB"
+      }
+    ],
+    "raw": "GPU0\tGPU1\tCPU Affinity\tNUMA Affinity\tGPU NUMA ID\nGPU0\t X \tPHB\t0-59\t0\t\tN/A\nGPU1\tPHB\t X \t0-59\t0\t\tN/A\n\nLegend:\n\n  X    = Self\n  SYS  = Connection traversing PCIe as well as the SMP interconnect between NUMA nodes (e.g., QPI/UPI)\n  NODE = Connection traversing PCIe as well as the interconnect between PCIe Host Bridges within a NUMA node\n  PHB  = Connection traversing PCIe as well as a PCIe Host Bridge (typically the CPU)\n  PXB  = Connection traversing multiple PCIe bridges (without traversing the PCIe Host Bridge)\n  PIX  = Connection traversing at most a single PCIe bridge\n  NV#  = Connection traversing a bonded set of # NVLinks"
+  },
+  "nvcc": {
+    "status": "ok",
+    "path": "/usr/local/cuda/bin/nvcc",
+    "version": "Cuda compilation tools, release 12.8, V12.8.93"
+  },
+  "classification": {
+    "bottleneck_hint": "memory-throughput",
+    "ncu": {
+      "dram_throughput_pct": 91.61,
+      "sm_throughput_pct": 48.19,
+      "achieved_occupancy_pct": 85.76
+    },
+    "variant_speedups": {
+      "default_vs_polynomial_or_affine": 1.0012924071082392,
+      "default_vs_fp16_output": 1.2053675612602102,
+      "fp16_output_vs_compact_xw": 1.5231042654028435,
+      "compact_xw_vs_compact_u16_xw": 1.3634894991922457,
+      "compact_u16_xw_vs_compact_u8_xw": 1.1835564053537284,
+      "compact_u8_xw_half_output_vs_u8_xw_output": 4.340248962655601,
+      "float_consumer_vs_compact_u8_consumer": 8.007547169811321,
+      "float_pipeline_vs_compact_u8_consumer_pipeline": 2.017433751743375
+    },
+    "notes": [
+      "Nsight shows high DRAM pressure with modest SM utilization; prioritize byte/sector reductions over extra arithmetic work.",
+      "Polynomial/affine math removal does not materially beat the default float-output vector kernel on this run.",
+      "FP16 output improves runtime, so output traffic is a useful ABI-changing optimization axis on this device.",
+      "Compact x/w input gives a large kernel-side win; verify producer layout or packing amortization before treating it as end-to-end.",
+      "U16 fixed-point x/w input improves over FP32 compact x/w on this memory-bound run while preserving the benchmark tolerance.",
+      "U8 fixed-point x/w input improves over U16 compact x/w on this memory-bound run while staying inside tolerance.",
+      "Custom U8 x/w output improves over FP16 output by attacking the remaining write traffic; this is a strongly ABI-changing path.",
+      "A downstream consumer that stays in compact U8 x/w form is much cheaper than consuming expanded float4 output.",
+      "Even when U8 input packing is paid every launch, the compact-output pipeline wins if downstream consumes compact form directly."
+    ]
+  },
+  "scaling": {
+    "dimx": 8192,
+    "dimy": 8192,
+    "elements": 67108864,
+    "headroom_fraction": 0.85,
+    "memory_models": [
+      {
+        "name": "current_harness_device_allocations",
+        "bytes_per_element": 12.25,
+        "total_bytes": 822083584,
+        "note": "Current benchmark allocates float input/output plus FP16 output, U8 output, downstream score output, and float, FP16, u16, u8, and u4 compact x/w scratch buffers."
+      },
+      {
+        "name": "float_inplace_default",
+        "bytes_per_element": 4.0,
+        "total_bytes": 268435456,
+        "note": "Production minimum for the float in-place default kernel."
+      },
+      {
+        "name": "float_input_fp16_output",
+        "bytes_per_element": 6.0,
+        "total_bytes": 402653184,
+        "note": "ABI-changing path with float input retained and FP16 output."
+      },
+      {
+        "name": "compact_xw_input_fp16_output",
+        "bytes_per_element": 4.0,
+        "total_bytes": 268435456,
+        "note": "Upper-bound compact consumer: compact x/w input plus FP16 output."
+      },
+      {
+        "name": "compact_half_or_u16_xw_input_fp16_output",
+        "bytes_per_element": 3.0,
+        "total_bytes": 201326592,
+        "note": "Quantized compact consumer: two 16-bit x/w inputs per four outputs plus FP16 output."
+      },
+      {
+        "name": "compact_u8_xw_input_fp16_output",
+        "bytes_per_element": 2.5,
+        "total_bytes": 167772160,
+        "note": "Aggressively quantized compact consumer: two 8-bit x/w inputs per four outputs plus FP16 output."
+      },
+      {
+        "name": "compact_u8_xw_input_u8_xw_output",
+        "bytes_per_element": 1.0,
+        "total_bytes": 67108864,
+        "note": "Fully benchmark-specialized ABI: U8 x/w input plus U8 x/w output with y/z as implicit constants."
+      },
+      {
+        "name": "compact_u8_xw_output_score",
+        "bytes_per_element": 1.5,
+        "total_bytes": 100663296,
+        "note": "Compact U8 x/w output consumed directly into one float score per four elements."
+      },
+      {
+        "name": "compact_u4_xw_input_fp16_output_expected_fail",
+        "bytes_per_element": 2.25,
+        "total_bytes": 150994944,
+        "note": "Boundary-only compact consumer: two 4-bit x/w inputs per four outputs plus FP16 output; expected to miss tolerance."
+      }
+    ],
+    "partitions": [
+      {
+        "gpu_index": 0,
+        "gpu_name": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+        "row_start": 0,
+        "row_end": 4096,
+        "rows": 4096,
+        "harness_bytes": 411041792,
+        "harness_mib": 392.0,
+        "usable_memory_mib": 83203.94999980927,
+        "fits_harness_with_headroom": true
+      },
+      {
+        "gpu_index": 1,
+        "gpu_name": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+        "row_start": 4096,
+        "row_end": 8192,
+        "rows": 4096,
+        "harness_bytes": 411041792,
+        "harness_mib": 392.0,
+        "usable_memory_mib": 83203.94999980927,
+        "fits_harness_with_headroom": true
+      }
+    ],
+    "status": "throughput-scaling-only",
+    "single_gpu_harness_mib": 784.0,
+    "fits_single_gpu_harness_with_headroom": true,
+    "fits_partitioned_harness_with_headroom": true,
+    "recommendation": "The problem fits one GPU with headroom; multi-GPU work should be gated on throughput goals and measured transfer/reduction overhead. The detected GPU-to-GPU path does not include NVLink, so multi-GPU runs are most meaningful when data is already sharded by GPU, when the working set requires capacity, or when throughput matters more than a gather-heavy single-result benchmark.",
+    "interconnect_note": "The detected GPU-to-GPU path does not include NVLink, so multi-GPU runs are most meaningful when data is already sharded by GPU, when the working set requires capacity, or when throughput matters more than a gather-heavy single-result benchmark."
+  }
+}

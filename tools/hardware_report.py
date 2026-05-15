@@ -180,7 +180,7 @@ def build_memory_models(dimx, dimy):
             "name": "current_harness_device_allocations",
             "bytes_per_element": 12.25,
             "total_bytes": int(elements * 12.25),
-            "note": "Current benchmark allocates float input/output plus FP16 output, U8 output, downstream score output, and float, FP16, u16, u8, and u4 compact x/w scratch buffers.",
+            "note": "Current benchmark allocates float input/output plus FP16 output, U8 output, downstream score output, and compact scratch buffers for the two changing values in each four-value group.",
         },
         {
             "name": "float_inplace_default",
@@ -198,37 +198,37 @@ def build_memory_models(dimx, dimy):
             "name": "compact_xw_input_fp16_output",
             "bytes_per_element": 4.0,
             "total_bytes": elements * 4,
-            "note": "Upper-bound compact consumer: compact x/w input plus FP16 output.",
+            "note": "Upper-bound compact consumer: compact two-value input plus FP16 output.",
         },
         {
             "name": "compact_half_or_u16_xw_input_fp16_output",
             "bytes_per_element": 3.0,
             "total_bytes": elements * 3,
-            "note": "Quantized compact consumer: two 16-bit x/w inputs per four outputs plus FP16 output.",
+            "note": "Quantized compact consumer: two 16-bit changing values per four outputs plus FP16 output.",
         },
         {
             "name": "compact_u8_xw_input_fp16_output",
             "bytes_per_element": 2.5,
             "total_bytes": int(elements * 2.5),
-            "note": "Aggressively quantized compact consumer: two 8-bit x/w inputs per four outputs plus FP16 output.",
+            "note": "Aggressively quantized compact consumer: two 8-bit changing values per four outputs plus FP16 output.",
         },
         {
             "name": "compact_u8_xw_input_u8_xw_output",
             "bytes_per_element": 1.0,
             "total_bytes": elements,
-            "note": "Fully benchmark-specialized ABI: U8 x/w input plus U8 x/w output with y/z as implicit constants.",
+            "note": "Fully benchmark-specialized ABI: U8 input/output for the two changing values, with the two constant values implicit.",
         },
         {
             "name": "compact_u8_xw_output_score",
             "bytes_per_element": 1.5,
             "total_bytes": int(elements * 1.5),
-            "note": "Compact U8 x/w output consumed directly into one float score per four elements.",
+            "note": "Compact U8 two-value output consumed directly into one float score per four elements.",
         },
         {
             "name": "compact_u4_xw_input_fp16_output_expected_fail",
             "bytes_per_element": 2.25,
             "total_bytes": int(elements * 2.25),
-            "note": "Boundary-only compact consumer: two 4-bit x/w inputs per four outputs plus FP16 output; expected to miss tolerance.",
+            "note": "Boundary-only compact consumer: two 4-bit changing values per four outputs plus FP16 output; expected to miss tolerance.",
         },
     ]
 
@@ -381,7 +381,7 @@ def classify(summary, space):
             bottleneck = "memory-throughput"
             notes.append(
                 "Nsight shows high DRAM pressure with modest SM utilization; "
-                "prioritize byte/sector reductions over extra arithmetic work."
+                "prioritize moving fewer bytes over extra arithmetic work."
             )
         elif sm_pct >= 80 and dram_pct <= 70:
             bottleneck = "compute-throughput"
@@ -420,32 +420,32 @@ def classify(summary, space):
         )
     if half_speedup and half_speedup >= 1.05:
         notes.append(
-            "FP16 output improves runtime, so output traffic is a useful "
+            "FP16 output improves runtime, so output data movement is a useful "
             "ABI-changing optimization axis on this device."
         )
     if compact_speedup and compact_speedup >= 1.10:
         notes.append(
-            "Compact x/w input gives a large kernel-side win; verify producer "
-            "layout or packing amortization before treating it as end-to-end."
+            "Compact two-value input gives a large kernel-side win; verify "
+            "producer layout or packing amortization before treating it as end-to-end."
         )
     if compact_u16_speedup and compact_u16_speedup >= 1.05:
         notes.append(
-            "U16 fixed-point x/w input improves over FP32 compact x/w on this "
-            "memory-bound run while preserving the benchmark tolerance."
+            "U16 fixed-point two-value input improves over FP32 compact "
+            "two-value input while preserving the benchmark tolerance."
         )
     if compact_u8_speedup and compact_u8_speedup >= 1.03:
         notes.append(
-            "U8 fixed-point x/w input improves over U16 compact x/w on this "
-            "memory-bound run while staying inside tolerance."
+            "U8 fixed-point two-value input improves over U16 compact "
+            "two-value input while staying inside tolerance."
         )
     if compact_u8_output_speedup and compact_u8_output_speedup >= 1.05:
         notes.append(
-            "Custom U8 x/w output improves over FP16 output by attacking the "
-            "remaining write traffic; this is a strongly ABI-changing path."
+            "Custom U8 two-value output improves over FP16 output by reducing "
+            "the remaining write volume; this is a strongly ABI-changing path."
         )
     if compact_consumer_speedup and compact_consumer_speedup >= 1.10:
         notes.append(
-            "A downstream consumer that stays in compact U8 x/w form is much "
+            "A downstream consumer that stays in compact U8 two-value form is much "
             "cheaper than consuming expanded float4 output."
         )
     if compact_consumer_pipeline_speedup and compact_consumer_pipeline_speedup >= 1.10:

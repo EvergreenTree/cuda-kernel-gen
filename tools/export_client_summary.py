@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 KEY_VARIANTS = (
-    ("Original row-stride ablation", "original_row_stride"),
+    ("Original row-stride kernel", "original_row_stride"),
     ("Vectorized float default", "vector4_coalesced_fast"),
     ("Affine float default", "vector4_affine_loaded_fixed_range_experimental"),
     ("FP16 output", "vector4_affine_half_output_sparse_experimental"),
@@ -180,8 +180,8 @@ def main():
                 "Variant",
                 "Correct",
                 "Median time",
-                "Speedup vs row-stride",
-                "Logical traffic",
+                "Speedup vs kernel baseline",
+                "Data moved",
             ],
             rows,
         )

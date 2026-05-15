@@ -23,9 +23,9 @@
 
 ## Key Variants
 
-| Variant | Correct | Median time | Speedup vs row-stride | Logical traffic |
+| Variant | Correct | Median time | Speedup vs kernel baseline | Data moved |
 | --- | --- | --- | --- | --- |
-| Original row-stride ablation | yes | 6.5958 ms | 1.00x | 512.0 MiB |
+| Original row-stride kernel | yes | 6.5958 ms | 1.00x | 512.0 MiB |
 | Vectorized float default | yes | 0.3099 ms | 21.28x | 512.0 MiB |
 | Affine float default | yes | 0.3095 ms | 21.31x | 512.0 MiB |
 | FP16 output | yes | 0.2571 ms | 25.65x | 256.0 MiB |
@@ -58,14 +58,14 @@ Nsight command: `sudo -n /usr/local/cuda/bin/ncu --set basic --page raw --csv --
 
 ## Recommendations
 
-- Nsight shows high DRAM pressure with modest SM utilization; prioritize byte/sector reductions over extra arithmetic work.
+- Nsight shows high DRAM pressure with modest SM utilization; prioritize moving fewer bytes over extra arithmetic work.
 - Polynomial/affine math removal does not materially beat the default float-output vector kernel on this run.
-- FP16 output improves runtime, so output traffic is a useful ABI-changing optimization axis on this device.
-- Compact x/w input gives a large kernel-side win; verify producer layout or packing amortization before treating it as end-to-end.
-- U16 fixed-point x/w input improves over FP32 compact x/w on this memory-bound run while preserving the benchmark tolerance.
-- U8 fixed-point x/w input improves over U16 compact x/w on this memory-bound run while staying inside tolerance.
-- Custom U8 x/w output improves over FP16 output by attacking the remaining write traffic; this is a strongly ABI-changing path.
-- A downstream consumer that stays in compact U8 x/w form is much cheaper than consuming expanded float4 output.
+- FP16 output improves runtime, so output data movement is a useful ABI-changing optimization axis on this device.
+- Compact two-value input gives a large kernel-side win; verify producer layout or packing amortization before treating it as end-to-end.
+- U16 fixed-point two-value input improves over FP32 compact two-value input while preserving the benchmark tolerance.
+- U8 fixed-point two-value input improves over U16 compact two-value input while staying inside tolerance.
+- Custom U8 two-value output improves over FP16 output by reducing the remaining write volume; this is a strongly ABI-changing path.
+- A downstream consumer that stays in compact U8 two-value form is much cheaper than consuming expanded float4 output.
 - Even when U8 input packing is paid every launch, the compact-output pipeline wins if downstream consumes compact form directly.
 - The problem fits one GPU with headroom; multi-GPU work should be gated on throughput goals and measured transfer/reduction overhead. The detected GPU-to-GPU path does not include NVLink, so multi-GPU runs are most meaningful when data is already sharded by GPU, when the working set requires capacity, or when throughput matters more than a gather-heavy single-result benchmark.
 

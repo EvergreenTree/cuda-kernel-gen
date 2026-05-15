@@ -51,8 +51,8 @@ VARIANT_COPY = {
         "tone": "neutral",
     },
     "original_row_stride": {
-        "label": "Single-GPU row-stride kernel",
-        "track": "Single-GPU baseline",
+        "label": "Original row-stride kernel",
+        "track": "Kernel baseline",
         "fit": "Same harness, inefficient memory layout",
         "tone": "neutral",
     },
@@ -75,7 +75,7 @@ VARIANT_COPY = {
         "tone": "option",
     },
     "compact_xw_affine_half_output_experimental": {
-        "label": "Compact FP32 x/w input + FP16 output",
+        "label": "Compact FP32 two-value input + FP16 output",
         "track": "Input/output ABI",
         "fit": "Upper-bound compact input shape before fixed-point quantization.",
         "tone": "option",
@@ -83,19 +83,19 @@ VARIANT_COPY = {
     "compact_u16_xw_affine_half_output_experimental": {
         "label": "Compact U16 input + FP16 output",
         "track": "Input/output ABI",
-        "fit": "Preserves tolerance with smaller fixed-point x/w input storage.",
+        "fit": "Preserves tolerance while storing only the two changing values in each four-value group.",
         "tone": "option",
     },
     "compact_u8_xw_affine_half_output_experimental": {
         "label": "Compact U8 input + FP16 output",
         "track": "Input/output ABI",
-        "fit": "Best when an upstream producer can emit compact x/w data directly.",
+        "fit": "Best when an upstream producer can emit only the two changing values directly.",
         "tone": "option",
     },
     "compact_u8_xw_affine_u8_xw_output_experimental": {
         "label": "Compact U8 input + U8 output",
         "track": "Specialized ABI",
-        "fit": "Highest kernel-side throughput if downstream can consume compact x/w output.",
+        "fit": "Highest kernel-side throughput if downstream can consume compact two-value output.",
         "tone": "max",
     },
     "vector4_affine_loaded_float_consumer_pipeline_experimental": {
@@ -288,7 +288,7 @@ def primary_cards(records):
               <div class="option-metrics">
                 <strong>{fmt_speedup(record['speedup_strict'])}</strong>
                 <span>{fmt_ms(record['time_ms'])}</span>
-                <span>{fmt_mib(record['traffic'])} traffic</span>
+                <span>{fmt_mib(record['traffic'])} data moved</span>
               </div>
             </article>
             """
@@ -358,7 +358,7 @@ def traffic_ladder(records):
 
 
 def resource_chips(record):
-    chips = [f"<span>{fmt_mib(record['traffic'])} traffic</span>"]
+    chips = [f"<span>{fmt_mib(record['traffic'])} data moved</span>"]
     if record["registers"] is not None:
         chips.append(f"<span>{fmt(record['registers'], 0)} registers/thread</span>")
     if record["spills"] is not None:
@@ -398,11 +398,16 @@ def profiler_panel(space):
     ncu = space.get("ncu", {})
     metrics = ncu.get("metrics", {})
     memory = ncu.get("memory_details", {}).get("metrics", {})
+    l1_load_sectors = memory.get("l1_global_load_sectors")
     cards = [
-        ("DRAM Throughput", f"{fmt(metrics.get('dram_throughput_pct'))}%", "Primary limiter"),
-        ("SM Throughput", f"{fmt(metrics.get('sm_throughput_pct'))}%", "Compute headroom remains"),
+        ("Bandwidth use", f"{fmt(metrics.get('dram_throughput_pct'))}%", "Near peak memory use"),
+        ("Compute use", f"{fmt(metrics.get('sm_throughput_pct'))}%", "Arithmetic is not the wall"),
         ("Occupancy", f"{fmt(metrics.get('achieved_occupancy_pct'))}%", "Healthy scheduling"),
-        ("L1 Load Sectors", fmt(memory.get("l1_global_load_sectors"), 0), "Coalescing evidence"),
+        (
+            "Access pattern",
+            "Coalesced",
+            f"{fmt(l1_load_sectors / 1_000_000, 1)}M memory chunks" if l1_load_sectors else "Vectorized memory access",
+        ),
     ]
     return "".join(stat_card(label, value, note, "flat") for label, value, note in cards)
 
@@ -440,7 +445,7 @@ def multi_gpu_story(hardware):
             "especially if the production pipeline keeps each shard on its assigned GPU."
         )
     else:
-        title = f"Dual-GPU host, PCIe/PHB path"
+        title = f"Two-GPU host, PCIe/PHB path"
         body = (
             f"{count} GPUs are visible, but the GPU-to-GPU path is {paths}, not NVLink. "
             "That still matters for capacity and for sustained throughput when inputs are "
@@ -796,13 +801,13 @@ code {{
 <header class="hero">
   <div class="wrap">
     <p class="eyebrow">CUDA Kernel Gen client report</p>
-    <h1>42x drop-in speedup for the original CUDA benchmark</h1>
-    <p class="lede">The optimized float path preserves the client's baseline contract. Additional compact-storage paths show what is possible when the client can change output format or downstream consumption.</p>
+    <h1>Coalesced Vectorization and Compact Data Layouts for a Transcendental CUDA Grid Benchmark</h1>
+    <p class="lede">A 42x drop-in speedup over the original CUDA benchmark while preserving float input/output semantics; compact ABI paths show the upside when storage and downstream consumption can change.</p>
     <div class="hero-grid">
       {stat_card("Original baseline", fmt_ms(strict_ms), "Strict problem definition")}
       {stat_card("Recommended drop-in", fmt_speedup(default.get("speedup_strict")), fmt_ms(default.get("time_ms")))}
       {stat_card("Best compact kernel", fmt_speedup(compact.get("speedup_strict")), "ABI-changing")}
-      {stat_card("Profiler result", "Memory-bound", "91.6% DRAM throughput")}
+      {stat_card("Profiler takeaway", "Memory near peak", "Next gains reduce data moved")}
     </div>
   </div>
 </header>
@@ -813,7 +818,7 @@ code {{
       <h2>Executive Summary</h2>
       <p>The baseline problem processes a fixed {fmt(summary.get('dimx'), 0)} x {fmt(summary.get('dimy'), 0)} float grid with five dependent transcendental iterations per element and a 1e-3 relative tolerance check.</p>
       <p>The recommended production default is the vectorized float kernel. It keeps the input/output contract intact and moves the runtime from {fmt_ms(strict_ms)} to {fmt_ms(default.get("time_ms"))} on this Blackwell host.</p>
-      <p>Nsight confirms the optimized path is memory-throughput bound, so the biggest optional gains come from reducing bytes moved rather than adding more math specialization.</p>
+      <p>Nsight shows the optimized path is bandwidth-limited: the GPU is moving data near peak DRAM throughput while arithmetic units still have headroom. That does not mean the architecture is deficient; it means the next gains come primarily from moving fewer bytes, or from running on hardware with more memory bandwidth.</p>
     </div>
     <div class="decision">
       <h2>Recommendation</h2>
@@ -839,12 +844,13 @@ code {{
     <h2>Why The Speedup Holds</h2>
     <div class="mini-grid">
       <div>
-        <h3>Memory traffic falls as the contract narrows</h3>
-        <p class="muted">The drop-in path fixes access geometry. ABI-changing paths then reduce output and compact x/w traffic.</p>
+        <h3>Data movement falls as the contract narrows</h3>
+        <p class="muted">The drop-in path fixes memory access geometry. ABI-changing paths then reduce output bytes and keep only the two lanes that actually vary in this benchmark.</p>
         {traffic_ladder(records)}
       </div>
       <div>
-        <h3>Nsight points to bandwidth, not arithmetic</h3>
+        <h3>Profiler evidence, translated</h3>
+        <p class="muted">The raw L1 sector count is a transaction counter: it confirms that vectorized loads and stores are coalesced into predictable memory chunks. The client takeaway is bandwidth pressure, not a need to inspect sector math.</p>
         <div class="profiler-grid">
           {profiler_panel(space)}
         </div>
@@ -854,7 +860,7 @@ code {{
 
   <section>
     <h2>Ranked Benchmark Portfolio</h2>
-    <p class="muted">Sorted by speedup vs the original client baseline. Footprint combines logical traffic, register pressure, and spill status so the table stays decision-oriented.</p>
+    <p class="muted">Sorted by speedup vs the original client baseline. Footprint combines data moved, register pressure, and spill status so the table stays decision-oriented.</p>
     {portfolio_table(records)}
   </section>
 
@@ -864,11 +870,11 @@ code {{
       <div>
         <h3>{esc(multi_title)}</h3>
         <p>{esc(multi_body)}</p>
-        <p class="muted">The current 8192 x 8192 harness fits one GPU with headroom, so the next multi-GPU benchmark should be a row-sharded throughput test, not a replacement for the single-GPU score above.</p>
+        <p class="muted">The current 8192 x 8192 harness fits on one GPU with headroom, so the next multi-GPU benchmark should be a row-sharded throughput test, not a replacement for the single-GPU score above.</p>
       </div>
       <div>
         {render_table(["Item", "Value"], [
-            ["Single-GPU harness memory", f"{fmt(scaling.get('single_gpu_harness_mib'))} MiB"],
+            ["One-GPU harness memory", f"{fmt(scaling.get('single_gpu_harness_mib'))} MiB"],
             ["Partitioned harness fits", "yes" if scaling.get("fits_partitioned_harness_with_headroom") else "no"],
             ["GPU-to-GPU path", esc(", ".join(hardware.get("topology", {}).get("paths", [])) or "unknown")],
             ["NVLink", "yes" if hardware.get("topology", {}).get("has_nvlink") else "no"],

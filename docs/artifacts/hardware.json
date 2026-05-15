@@ -66,14 +66,14 @@
       "float_pipeline_vs_compact_u8_consumer_pipeline": 2.017433751743375
     },
     "notes": [
-      "Nsight shows high DRAM pressure with modest SM utilization; prioritize byte/sector reductions over extra arithmetic work.",
+      "Nsight shows high DRAM pressure with modest SM utilization; prioritize moving fewer bytes over extra arithmetic work.",
       "Polynomial/affine math removal does not materially beat the default float-output vector kernel on this run.",
-      "FP16 output improves runtime, so output traffic is a useful ABI-changing optimization axis on this device.",
-      "Compact x/w input gives a large kernel-side win; verify producer layout or packing amortization before treating it as end-to-end.",
-      "U16 fixed-point x/w input improves over FP32 compact x/w on this memory-bound run while preserving the benchmark tolerance.",
-      "U8 fixed-point x/w input improves over U16 compact x/w on this memory-bound run while staying inside tolerance.",
-      "Custom U8 x/w output improves over FP16 output by attacking the remaining write traffic; this is a strongly ABI-changing path.",
-      "A downstream consumer that stays in compact U8 x/w form is much cheaper than consuming expanded float4 output.",
+      "FP16 output improves runtime, so output data movement is a useful ABI-changing optimization axis on this device.",
+      "Compact two-value input gives a large kernel-side win; verify producer layout or packing amortization before treating it as end-to-end.",
+      "U16 fixed-point two-value input improves over FP32 compact two-value input while preserving the benchmark tolerance.",
+      "U8 fixed-point two-value input improves over U16 compact two-value input while staying inside tolerance.",
+      "Custom U8 two-value output improves over FP16 output by reducing the remaining write volume; this is a strongly ABI-changing path.",
+      "A downstream consumer that stays in compact U8 two-value form is much cheaper than consuming expanded float4 output.",
       "Even when U8 input packing is paid every launch, the compact-output pipeline wins if downstream consumes compact form directly."
     ]
   },
@@ -87,7 +87,7 @@
         "name": "current_harness_device_allocations",
         "bytes_per_element": 12.25,
         "total_bytes": 822083584,
-        "note": "Current benchmark allocates float input/output plus FP16 output, U8 output, downstream score output, and float, FP16, u16, u8, and u4 compact x/w scratch buffers."
+        "note": "Current benchmark allocates float input/output plus FP16 output, U8 output, downstream score output, and compact scratch buffers for the two changing values in each four-value group."
       },
       {
         "name": "float_inplace_default",
@@ -105,37 +105,37 @@
         "name": "compact_xw_input_fp16_output",
         "bytes_per_element": 4.0,
         "total_bytes": 268435456,
-        "note": "Upper-bound compact consumer: compact x/w input plus FP16 output."
+        "note": "Upper-bound compact consumer: compact two-value input plus FP16 output."
       },
       {
         "name": "compact_half_or_u16_xw_input_fp16_output",
         "bytes_per_element": 3.0,
         "total_bytes": 201326592,
-        "note": "Quantized compact consumer: two 16-bit x/w inputs per four outputs plus FP16 output."
+        "note": "Quantized compact consumer: two 16-bit changing values per four outputs plus FP16 output."
       },
       {
         "name": "compact_u8_xw_input_fp16_output",
         "bytes_per_element": 2.5,
         "total_bytes": 167772160,
-        "note": "Aggressively quantized compact consumer: two 8-bit x/w inputs per four outputs plus FP16 output."
+        "note": "Aggressively quantized compact consumer: two 8-bit changing values per four outputs plus FP16 output."
       },
       {
         "name": "compact_u8_xw_input_u8_xw_output",
         "bytes_per_element": 1.0,
         "total_bytes": 67108864,
-        "note": "Fully benchmark-specialized ABI: U8 x/w input plus U8 x/w output with y/z as implicit constants."
+        "note": "Fully benchmark-specialized ABI: U8 input/output for the two changing values, with the two constant values implicit."
       },
       {
         "name": "compact_u8_xw_output_score",
         "bytes_per_element": 1.5,
         "total_bytes": 100663296,
-        "note": "Compact U8 x/w output consumed directly into one float score per four elements."
+        "note": "Compact U8 two-value output consumed directly into one float score per four elements."
       },
       {
         "name": "compact_u4_xw_input_fp16_output_expected_fail",
         "bytes_per_element": 2.25,
         "total_bytes": 150994944,
-        "note": "Boundary-only compact consumer: two 4-bit x/w inputs per four outputs plus FP16 output; expected to miss tolerance."
+        "note": "Boundary-only compact consumer: two 4-bit changing values per four outputs plus FP16 output; expected to miss tolerance."
       }
     ],
     "partitions": [

@@ -1,5 +1,7 @@
 # CUDA Kernel Performance Summary
 
+[HTML report](../index.html) · [PDF report](../cuda-kernel-performance-report.pdf)
+
 ## Hardware
 
 | Item | Value |

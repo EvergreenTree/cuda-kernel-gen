@@ -64,7 +64,7 @@ h1 {
 .hero-grid {
   display: grid;
   gap: 14px;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   margin-top: 28px;
 }
 .stat {
@@ -418,13 +418,14 @@ code {
 <header class="hero">
   <div class="wrap">
     <p class="eyebrow">CUDA Kernel Gen client report</p>
-    <h1>80.6x drop-in speedup for the original CUDA benchmark</h1>
+    <h1>Up to 80.6x drop-in speedup for the original CUDA benchmark</h1>
     <p class="lede">Coalesced vectorization and compact data layouts for a transcendental CUDA grid benchmark, while preserving the client's float input/output contract for the recommended default.</p>
     <div class="hero-grid">
       <div class="stat "><p>Original baseline</p><strong>14.8900 ms</strong><span>Strict problem definition</span></div>
       <div class="stat "><p>Recommended drop-in</p><strong>80.6x</strong><span>0.1848 ms</span></div>
       <div class="stat "><p>Fastest kernel-only</p><strong>638.7x</strong><span>0.0233 ms</span></div>
-      <div class="stat "><p>Fused score path</p><strong>595.9x</strong><span>0.0250 ms</span></div>
+      <div class="stat "><p>Adjacent L2 pipeline</p><strong>325.0x</strong><span>0.0458 ms</span></div>
+      <div class="stat "><p>Best score path</p><strong>595.9x</strong><span>0.0250 ms</span></div>
     </div>
   </div>
 </header>
@@ -434,14 +435,14 @@ code {
     <div>
       <h2>Executive Summary</h2>
       <p>The baseline problem processes a fixed 8192 x 8192 float grid with five dependent transcendental iterations per element and a 1e-3 relative tolerance check.</p>
-      <p>The recommended production default is the vectorized float kernel. It keeps the input/output contract intact and moves the runtime from 14.8900 ms to 0.1848 ms on this Blackwell host.</p>
-      <p>The fastest compact row combines uint4-packed U8 input/output with persisting L2 on the compact input. The adjacent L2 pipeline is slower because it times useful downstream consumer work too; use that row to judge product pipelines, not standalone kernel throughput.</p>
-      <p>Nsight classifies the drop-in float path as compute-throughput sensitive on this host, which explains why fixed-range affine math wins materially on B300. The compact fused paths still matter because they remove global-memory traffic and launch boundaries.</p>
+      <p>The recommended production default is the vectorized float kernel. It keeps the input/output contract intact and moves the runtime from 14.8900 ms to 0.1848 ms on NVIDIA B300 SXM6 AC.</p>
+      <p>The fastest specialized kernel combines uint4-packed U8 input/output with persisting L2 on the compact input. The adjacent L2 pipeline is reported separately because it times useful downstream consumer work too; the fused score path is the best score-producing compact-data result in this report.</p>
+      <p>Nsight classifies the drop-in float path as compute-throughput sensitive on the measured GPU, which explains why fixed-range affine math can win materially here. The compact fused paths still matter because they remove global-memory traffic and launch boundaries.</p>
     </div>
     <div class="decision">
       <h2>Recommendation</h2>
-      <p><strong>Adopt the vectorized float default as the safe deliverable.</strong></p>
-      <p>Use FP16 output or compact U8 paths only as explicit ABI tracks. They are compelling when the surrounding product can store or consume compact data directly.</p>
+      <p><strong>Adopt the vectorized float kernel as the production default.</strong></p>
+      <p>Use FP16 output or compact U8 paths only when the product can adopt those data contracts. They are compelling when surrounding stages can store or consume compact data directly.</p>
     </div>
   </section>
 
@@ -453,7 +454,7 @@ code {
               <div>
                 <span class="pill">Drop-in</span>
                 <h3>Vectorized float default</h3>
-                <p>Recommended when the float input/output ABI must stay unchanged.</p>
+                <p>Recommended when the float input/output contract must stay unchanged.</p>
               </div>
               <div class="option-metrics">
                 <strong>80.6x</strong>
@@ -464,7 +465,7 @@ code {
 
             <article class="option-card option">
               <div>
-                <span class="pill">Output ABI</span>
+                <span class="pill">Output contract</span>
                 <h3>FP16 output</h3>
                 <p>Useful when the client can accept half-precision output storage.</p>
               </div>
@@ -477,7 +478,7 @@ code {
 
             <article class="option-card option">
               <div>
-                <span class="pill">Input/output ABI</span>
+                <span class="pill">Compact contract</span>
                 <h3>Compact U8 input + FP16 output</h3>
                 <p>Best when an upstream producer can emit only the two changing values directly.</p>
               </div>
@@ -490,22 +491,9 @@ code {
 
             <article class="option-card max">
               <div>
-                <span class="pill">Fused pipeline</span>
-                <h3>Fused compact U8 input to score + L2</h3>
-                <p>Fastest score-producing path if compact input is reused and can stay resident in L2.</p>
-              </div>
-              <div class="option-metrics">
-                <strong>595.9x</strong>
-                <span>0.0250 ms</span>
-                <span>96 MiB data moved</span>
-              </div>
-            </article>
-
-            <article class="option-card max">
-              <div>
-                <span class="pill">Extreme ABI</span>
+                <span class="pill">Specialized contract</span>
                 <h3>uint4 + L2 U8 in/out kernel</h3>
-                <p>Fastest kernel-only result: vectorized compact loads/stores plus persisting compact input.</p>
+                <p>Fastest kernel-only result: compact U8 input/output with persisting input L2.</p>
               </div>
               <div class="option-metrics">
                 <strong>638.7x</strong>
@@ -516,7 +504,7 @@ code {
 
             <article class="option-card max">
               <div>
-                <span class="pill">Extreme ABI</span>
+                <span class="pill">Specialized pipeline</span>
                 <h3>uint4 + L2 compact pipeline</h3>
                 <p>Best adjacent producer-consumer path: uint4 producer plus persisting compact output.</p>
               </div>
@@ -527,16 +515,16 @@ code {
               </div>
             </article>
 
-            <article class="option-card option">
+            <article class="option-card max">
               <div>
-                <span class="pill">Pipeline</span>
-                <h3>Compact U8 output + score pipeline</h3>
-                <p>Best end-to-end specialized path when compact output is consumed directly.</p>
+                <span class="pill">Fused pipeline</span>
+                <h3>Fused compact U8 score + L2</h3>
+                <p>Fastest score-producing path if compact input is reused and can stay resident in L2.</p>
               </div>
               <div class="option-metrics">
-                <strong>128.1x</strong>
-                <span>0.1162 ms</span>
-                <span>448 MiB data moved</span>
+                <strong>595.9x</strong>
+                <span>0.0250 ms</span>
+                <span>96 MiB data moved</span>
               </div>
             </article>
 
@@ -545,12 +533,12 @@ code {
 
   <section>
     <h2>Performance Ladder</h2>
-    <p class="muted">Client-relevant variants, sorted by speedup against the original client baseline.</p>
+    <p class="muted">Client-relevant variants, sorted by speedup against the original client baseline. L2-resident results are included when they were measured in the current report.</p>
     <div class="ladder">
             <div class="ladder-row max">
               <div class="ladder-label">
                 <strong>uint4 + L2 U8 in/out kernel</strong>
-                <span>Extreme ABI</span>
+                <span>Specialized contract</span>
               </div>
               <div class="ladder-track">
                 <span style="width: 100.00%"></span>
@@ -561,7 +549,7 @@ code {
             <div class="ladder-row max">
               <div class="ladder-label">
                 <strong>uint4-packed U8 in/out kernel</strong>
-                <span>Specialized ABI</span>
+                <span>Specialized contract</span>
               </div>
               <div class="ladder-track">
                 <span style="width: 98.98%"></span>
@@ -571,7 +559,7 @@ code {
 
             <div class="ladder-row max">
               <div class="ladder-label">
-                <strong>Fused compact U8 input to score + L2</strong>
+                <strong>Fused compact U8 score + L2</strong>
                 <span>Fused pipeline</span>
               </div>
               <div class="ladder-track">
@@ -583,7 +571,7 @@ code {
             <div class="ladder-row max">
               <div class="ladder-label">
                 <strong>L2-persisting U8 in/out kernel</strong>
-                <span>Extreme ABI</span>
+                <span>Specialized contract</span>
               </div>
               <div class="ladder-track">
                 <span style="width: 84.62%"></span>
@@ -605,7 +593,7 @@ code {
             <div class="ladder-row max">
               <div class="ladder-label">
                 <strong>Compact U8 input + U8 output</strong>
-                <span>Specialized ABI</span>
+                <span>Specialized contract</span>
               </div>
               <div class="ladder-track">
                 <span style="width: 72.62%"></span>
@@ -616,7 +604,7 @@ code {
             <div class="ladder-row option">
               <div class="ladder-label">
                 <strong>Compact U8 input + FP16 output</strong>
-                <span>Input/output ABI</span>
+                <span>Compact contract</span>
               </div>
               <div class="ladder-track">
                 <span style="width: 58.57%"></span>
@@ -627,7 +615,7 @@ code {
             <div class="ladder-row option">
               <div class="ladder-label">
                 <strong>Compact U16 input + FP16 output</strong>
-                <span>Input/output ABI</span>
+                <span>Compact contract</span>
               </div>
               <div class="ladder-track">
                 <span style="width: 55.24%"></span>
@@ -638,7 +626,7 @@ code {
             <div class="ladder-row max">
               <div class="ladder-label">
                 <strong>uint4 + L2 compact pipeline</strong>
-                <span>Extreme ABI</span>
+                <span>Specialized pipeline</span>
               </div>
               <div class="ladder-track">
                 <span style="width: 50.89%"></span>
@@ -649,7 +637,7 @@ code {
             <div class="ladder-row option">
               <div class="ladder-label">
                 <strong>Compact FP32 two-value input + FP16 output</strong>
-                <span>Input/output ABI</span>
+                <span>Compact contract</span>
               </div>
               <div class="ladder-track">
                 <span style="width: 48.87%"></span>
@@ -664,7 +652,7 @@ code {
     <div class="mini-grid">
       <div>
         <h3>Data movement falls as the contract narrows</h3>
-        <p class="muted">The drop-in path fixes memory access geometry. ABI-changing paths then reduce output bytes and keep only the two lanes that actually vary in this benchmark.</p>
+        <p class="muted">The drop-in path fixes memory access geometry. Data-contract-changing paths then reduce output bytes and keep only the two lanes that actually vary in this benchmark.</p>
 
             <div class="mini-row">
               <span>Compact U8 input + U8 output</span>
@@ -709,20 +697,20 @@ code {
 
   <section>
     <h2>Ranked Benchmark Portfolio</h2>
-    <p class="muted">Sorted by speedup vs the original client baseline. Footprint combines data moved, register pressure, and spill status so the table stays decision-oriented.</p>
+    <p class="muted">Sorted by speedup vs the original client baseline, including L2-resident rows when available. Footprint combines data moved, register pressure, and spill status so the table stays decision-oriented.</p>
     <div class="table-wrap portfolio"><table><thead><tr><th>Variant</th><th>Track</th><th>Status</th><th>Speedup</th><th>Time</th><th>Footprint</th></tr></thead><tbody><tr><td data-label="Variant">
                 <div class="variant-name">
                   <strong>uint4 + L2 U8 in/out kernel</strong>
-                  <span>Fastest kernel-only result: vectorized compact loads/stores plus persisting compact input.</span>
+                  <span>Fastest kernel-only result: compact U8 input/output with persisting input L2.</span>
                 </div>
-                </td><td data-label="Track"><span class="track max">Extreme ABI</span></td><td data-label="Status">Pass</td><td data-label="Speedup">638.7x</td><td data-label="Time">0.0233 ms</td><td data-label="Footprint"><div class="chips"><span>64 MiB data moved</span></div></td></tr><tr><td data-label="Variant">
+                </td><td data-label="Track"><span class="track max">Specialized contract</span></td><td data-label="Status">Pass</td><td data-label="Speedup">638.7x</td><td data-label="Time">0.0233 ms</td><td data-label="Footprint"><div class="chips"><span>64 MiB data moved</span></div></td></tr><tr><td data-label="Variant">
                 <div class="variant-name">
                   <strong>uint4-packed U8 in/out kernel</strong>
                   <span>Processes eight compact groups per thread; faster producer without relying on L2 hints.</span>
                 </div>
-                </td><td data-label="Track"><span class="track max">Specialized ABI</span></td><td data-label="Status">Pass</td><td data-label="Speedup">632.2x</td><td data-label="Time">0.0236 ms</td><td data-label="Footprint"><div class="chips"><span>64 MiB data moved</span></div></td></tr><tr><td data-label="Variant">
+                </td><td data-label="Track"><span class="track max">Specialized contract</span></td><td data-label="Status">Pass</td><td data-label="Speedup">632.2x</td><td data-label="Time">0.0236 ms</td><td data-label="Footprint"><div class="chips"><span>64 MiB data moved</span></div></td></tr><tr><td data-label="Variant">
                 <div class="variant-name">
-                  <strong>Fused compact U8 input to score + L2</strong>
+                  <strong>Fused compact U8 score + L2</strong>
                   <span>Fastest score-producing path if compact input is reused and can stay resident in L2.</span>
                 </div>
                 </td><td data-label="Track"><span class="track max">Fused pipeline</span></td><td data-label="Status">Pass</td><td data-label="Speedup">595.9x</td><td data-label="Time">0.0250 ms</td><td data-label="Footprint"><div class="chips"><span>96 MiB data moved</span></div></td></tr><tr><td data-label="Variant">
@@ -730,7 +718,7 @@ code {
                   <strong>L2-persisting U8 in/out kernel</strong>
                   <span>Fastest kernel-only result when compact input is reused and fits in persisting L2.</span>
                 </div>
-                </td><td data-label="Track"><span class="track max">Extreme ABI</span></td><td data-label="Status">Pass</td><td data-label="Speedup">540.5x</td><td data-label="Time">0.0276 ms</td><td data-label="Footprint"><div class="chips"><span>64 MiB data moved</span></div></td></tr><tr><td data-label="Variant">
+                </td><td data-label="Track"><span class="track max">Specialized contract</span></td><td data-label="Status">Pass</td><td data-label="Speedup">540.5x</td><td data-label="Time">0.0276 ms</td><td data-label="Footprint"><div class="chips"><span>64 MiB data moved</span></div></td></tr><tr><td data-label="Variant">
                 <div class="variant-name">
                   <strong>Fused compact U8 input to score</strong>
                   <span>Reads compact U8 input and writes score output directly, skipping the compact output buffer.</span>
@@ -740,27 +728,27 @@ code {
                   <strong>Compact U8 input + U8 output</strong>
                   <span>Fastest kernel-only result; does not include a downstream consumer.</span>
                 </div>
-                </td><td data-label="Track"><span class="track max">Specialized ABI</span></td><td data-label="Status">Pass</td><td data-label="Speedup">463.9x</td><td data-label="Time">0.0321 ms</td><td data-label="Footprint"><div class="chips"><span>64 MiB data moved</span><span>14 registers/thread</span><span>0 spill bytes</span></div></td></tr><tr><td data-label="Variant">
+                </td><td data-label="Track"><span class="track max">Specialized contract</span></td><td data-label="Status">Pass</td><td data-label="Speedup">463.9x</td><td data-label="Time">0.0321 ms</td><td data-label="Footprint"><div class="chips"><span>64 MiB data moved</span><span>14 registers/thread</span><span>0 spill bytes</span></div></td></tr><tr><td data-label="Variant">
                 <div class="variant-name">
                   <strong>Compact U8 input + FP16 output</strong>
                   <span>Best when an upstream producer can emit only the two changing values directly.</span>
                 </div>
-                </td><td data-label="Track"><span class="track option">Input/output ABI</span></td><td data-label="Status">Pass</td><td data-label="Speedup">374.1x</td><td data-label="Time">0.0398 ms</td><td data-label="Footprint"><div class="chips"><span>160 MiB data moved</span><span>28 registers/thread</span><span>0 spill bytes</span></div></td></tr><tr><td data-label="Variant">
+                </td><td data-label="Track"><span class="track option">Compact contract</span></td><td data-label="Status">Pass</td><td data-label="Speedup">374.1x</td><td data-label="Time">0.0398 ms</td><td data-label="Footprint"><div class="chips"><span>160 MiB data moved</span><span>28 registers/thread</span><span>0 spill bytes</span></div></td></tr><tr><td data-label="Variant">
                 <div class="variant-name">
                   <strong>Compact U16 input + FP16 output</strong>
                   <span>Preserves tolerance while storing only the two changing values in each four-value group.</span>
                 </div>
-                </td><td data-label="Track"><span class="track option">Input/output ABI</span></td><td data-label="Status">Pass</td><td data-label="Speedup">352.8x</td><td data-label="Time">0.0422 ms</td><td data-label="Footprint"><div class="chips"><span>192 MiB data moved</span><span>30 registers/thread</span><span>0 spill bytes</span></div></td></tr><tr><td data-label="Variant">
+                </td><td data-label="Track"><span class="track option">Compact contract</span></td><td data-label="Status">Pass</td><td data-label="Speedup">352.8x</td><td data-label="Time">0.0422 ms</td><td data-label="Footprint"><div class="chips"><span>192 MiB data moved</span><span>30 registers/thread</span><span>0 spill bytes</span></div></td></tr><tr><td data-label="Variant">
                 <div class="variant-name">
                   <strong>uint4 + L2 compact pipeline</strong>
                   <span>Best adjacent producer-consumer path: uint4 producer plus persisting compact output.</span>
                 </div>
-                </td><td data-label="Track"><span class="track max">Extreme ABI</span></td><td data-label="Status">Pass</td><td data-label="Speedup">325.0x</td><td data-label="Time">0.0458 ms</td><td data-label="Footprint"><div class="chips"><span>160 MiB data moved</span></div></td></tr><tr><td data-label="Variant">
+                </td><td data-label="Track"><span class="track max">Specialized pipeline</span></td><td data-label="Status">Pass</td><td data-label="Speedup">325.0x</td><td data-label="Time">0.0458 ms</td><td data-label="Footprint"><div class="chips"><span>160 MiB data moved</span></div></td></tr><tr><td data-label="Variant">
                 <div class="variant-name">
                   <strong>Compact FP32 two-value input + FP16 output</strong>
                   <span>Upper-bound compact input shape before fixed-point quantization.</span>
                 </div>
-                </td><td data-label="Track"><span class="track option">Input/output ABI</span></td><td data-label="Status">Pass</td><td data-label="Speedup">312.2x</td><td data-label="Time">0.0477 ms</td><td data-label="Footprint"><div class="chips"><span>256 MiB data moved</span><span>30 registers/thread</span><span>0 spill bytes</span></div></td></tr><tr><td data-label="Variant">
+                </td><td data-label="Track"><span class="track option">Compact contract</span></td><td data-label="Status">Pass</td><td data-label="Speedup">312.2x</td><td data-label="Time">0.0477 ms</td><td data-label="Footprint"><div class="chips"><span>256 MiB data moved</span><span>30 registers/thread</span><span>0 spill bytes</span></div></td></tr><tr><td data-label="Variant">
                 <div class="variant-name">
                   <strong>uint4 U8 producer + consumer</strong>
                   <span>Vectorized compact producer followed by the existing compact consumer.</span>
@@ -770,12 +758,12 @@ code {
                   <strong>L2-resident U8 in/out pipeline</strong>
                   <span>U8 input, U8 output, and compact consumer timed together with persisting L2.</span>
                 </div>
-                </td><td data-label="Track"><span class="track max">Extreme ABI</span></td><td data-label="Status">Pass</td><td data-label="Speedup">238.2x</td><td data-label="Time">0.0625 ms</td><td data-label="Footprint"><div class="chips"><span>160 MiB data moved</span></div></td></tr><tr><td data-label="Variant">
+                </td><td data-label="Track"><span class="track max">Specialized pipeline</span></td><td data-label="Status">Pass</td><td data-label="Speedup">238.2x</td><td data-label="Time">0.0625 ms</td><td data-label="Footprint"><div class="chips"><span>160 MiB data moved</span></div></td></tr><tr><td data-label="Variant">
                 <div class="variant-name">
                   <strong>FP16 output</strong>
                   <span>Useful when the client can accept half-precision output storage.</span>
                 </div>
-                </td><td data-label="Track"><span class="track option">Output ABI</span></td><td data-label="Status">Pass</td><td data-label="Speedup">236.7x</td><td data-label="Time">0.0629 ms</td><td data-label="Footprint"><div class="chips"><span>256 MiB data moved</span><span>30 registers/thread</span><span>0 spill bytes</span></div></td></tr><tr><td data-label="Variant">
+                </td><td data-label="Track"><span class="track option">Output contract</span></td><td data-label="Status">Pass</td><td data-label="Speedup">236.7x</td><td data-label="Time">0.0629 ms</td><td data-label="Footprint"><div class="chips"><span>256 MiB data moved</span><span>30 registers/thread</span><span>0 spill bytes</span></div></td></tr><tr><td data-label="Variant">
                 <div class="variant-name">
                   <strong>Affine float default</strong>
                   <span>Documents the fixed-range math opportunity, but does not materially beat the float default.</span>
@@ -783,12 +771,12 @@ code {
                 </td><td data-label="Track"><span class="track safe">Drop-in-specialized</span></td><td data-label="Status">Pass</td><td data-label="Speedup">176.0x</td><td data-label="Time">0.0846 ms</td><td data-label="Footprint"><div class="chips"><span>512 MiB data moved</span><span>22 registers/thread</span><span>0 spill bytes</span></div></td></tr><tr><td data-label="Variant">
                 <div class="variant-name">
                   <strong>Compact U8 output + score pipeline</strong>
-                  <span>Best end-to-end specialized path when compact output is consumed directly.</span>
+                  <span>Setup-paid compact-output pipeline; retained as a comparison, not the extreme path.</span>
                 </div>
                 </td><td data-label="Track"><span class="track option">Pipeline</span></td><td data-label="Status">Pass</td><td data-label="Speedup">128.1x</td><td data-label="Time">0.1162 ms</td><td data-label="Footprint"><div class="chips"><span>448 MiB data moved</span></div></td></tr><tr><td data-label="Variant">
                 <div class="variant-name">
                   <strong>Vectorized float default</strong>
-                  <span>Recommended when the float input/output ABI must stay unchanged.</span>
+                  <span>Recommended when the float input/output contract must stay unchanged.</span>
                 </div>
                 </td><td data-label="Track"><span class="track safe">Drop-in</span></td><td data-label="Status">Pass</td><td data-label="Speedup">80.6x</td><td data-label="Time">0.1848 ms</td><td data-label="Footprint"><div class="chips"><span>512 MiB data moved</span><span>26 registers/thread</span><span>0 spill bytes</span></div></td></tr><tr><td data-label="Variant">
                 <div class="variant-name">
@@ -805,12 +793,12 @@ code {
 
 
   <section class="l2-section">
-    <h2>Extreme L2-Resident Path</h2>
+    <h2>Maximum-Performance L2 Path</h2>
     <div class="l2-copy">
-      <h3>When a custom ABI is worth considering</h3>
+      <h3>When a compact data contract is worth considering</h3>
       <p>This path is aimed at latency-sensitive customers who can own the compact data contract, producer/consumer coupling, and maintenance burden. It is not the safe library default.</p>
       <p class="muted">There are two useful combinations. First, the current best kernel-only shape uses uint4 loads/stores to process eight compact groups per thread, then keeps compact U8 input in persisting L2; that measured 0.0233 ms, or 638.7x against the original client baseline. Second, the uint4 compact producer can write U8 x/w output and keep that output resident for an adjacent compact consumer; that producer-plus-consumer path measured 0.0458 ms, or 325.0x.</p>
-      <p class="muted">The kernel-only L2 result is the fastest measured row on this host, but it depends on compact input reuse and a working set that fits the persisting-L2 budget. On B200-class systems, very high HBM3e bandwidth narrows the cache advantage, so this tactic should be remeasured rather than assumed.</p>
+      <p class="muted">The kernel-only L2 result is the fastest measured row on this system, but it depends on compact input reuse and a working set that fits the persisting-L2 budget. On B200-class systems, very high HBM3e bandwidth narrows the cache advantage, so this tactic should be remeasured rather than assumed.</p>
       <p class="muted">The L2 path does not make the workload compute-bound. It reduces read pressure, but the compact consumer still shows a memory-path profile because it writes the score stream and moves predictable global-memory transactions.</p>
     </div>
     <div class="fact-grid"><div class="fact"><span>Compact output footprint</span><strong>32 MiB</strong></div><div class="fact"><span>Measured L2 cache</span><strong>126 MiB</strong></div><div class="fact"><span>Persisting-L2 budget</span><strong>79 MiB</strong></div><div class="fact"><span>Kernel-only L2 result</span><strong>0.0233 ms</strong></div><div class="fact"><span>L2 lift on best producer</span><strong>1.01x</strong></div><div class="fact"><span>uint4 producer lift</span><strong>1.18x</strong></div><div class="fact"><span>Scalar L2 vs thrash</span><strong>1.55x</strong></div><div class="fact"><span>Warm vs cold consumer</span><strong>1.3x</strong></div><div class="fact"><span>Persisting total lift</span><strong>1.13x</strong></div><div class="fact"><span>uint4 pipeline lift</span><strong>1.36x</strong></div><div class="fact"><span>Fused score result</span><strong>0.0250 ms</strong></div><div class="fact"><span>Fused vs best adjacent</span><strong>1.83x</strong></div><div class="fact"><span>Fused vs strict baseline</span><strong>595.9x</strong></div></div>
@@ -884,14 +872,14 @@ code {
             </div>
     <h3 class="section-subhead">Cache residency planning model</h3>
     <p class="muted">Planning estimate only: assume about 70% of advertised cache is usable for resident working data, then verify on the target SKU. Aggregate cache helps only when the workload is partitioned so each GPU or die keeps its shard local.</p>
-    <div class="table-wrap compact-plan"><table><thead><tr><th>GPU family</th><th>Usable cache estimate</th><th>256 MiB working set</th><th>512 MiB working set</th><th>Readout</th></tr></thead><tbody><tr><td data-label="GPU family">H100 / H200</td><td data-label="Usable cache estimate">~35 MiB</td><td data-label="256 MiB working set">8 GPUs</td><td data-label="512 MiB working set">15+ GPUs</td><td data-label="Readout">L2 density is too small for this tactic at practical scale.</td></tr><tr><td data-label="GPU family">RTX 6000 Ada / RTX 5090</td><td data-label="Usable cache estimate">~67 MiB</td><td data-label="256 MiB working set">4 GPUs</td><td data-label="512 MiB working set">8 GPUs</td><td data-label="Readout">Good single-die cache, but still needs sharding for larger working sets.</td></tr><tr><td data-label="GPU family">RTX Pro 6000 Blackwell</td><td data-label="Usable cache estimate">~90 MiB</td><td data-label="256 MiB working set">3 GPUs</td><td data-label="512 MiB working set">6 GPUs</td><td data-label="Readout">Best fit among workstation-class NVIDIA parts in this planning model.</td></tr><tr><td data-label="GPU family">B200</td><td data-label="Usable cache estimate">~180 MiB logical</td><td data-label="256 MiB working set">2 GPUs</td><td data-label="512 MiB working set">3 GPUs</td><td data-label="Readout">High HBM3e bandwidth narrows the cache advantage; use L2 mainly for reuse and latency.</td></tr><tr><td data-label="GPU family">B300 SXM6 AC (measured)</td><td data-label="Usable cache estimate">~89 MiB</td><td data-label="256 MiB working set">3 GPUs</td><td data-label="512 MiB working set">6 GPUs</td><td data-label="Readout">Measured on this host: 126.5 MiB L2 and 79.1 MiB persisting budget.</td></tr></tbody></table></div>
+    <div class="table-wrap compact-plan"><table><thead><tr><th>GPU family</th><th>Usable cache estimate</th><th>256 MiB working set</th><th>512 MiB working set</th><th>Readout</th></tr></thead><tbody><tr><td data-label="GPU family">H100 / H200</td><td data-label="Usable cache estimate">~35 MiB</td><td data-label="256 MiB working set">8 GPUs</td><td data-label="512 MiB working set">15+ GPUs</td><td data-label="Readout">L2 density is too small for this tactic at practical scale.</td></tr><tr><td data-label="GPU family">RTX 6000 Ada / RTX 5090</td><td data-label="Usable cache estimate">~67 MiB</td><td data-label="256 MiB working set">4 GPUs</td><td data-label="512 MiB working set">8 GPUs</td><td data-label="Readout">Good single-die cache, but still needs sharding for larger working sets.</td></tr><tr><td data-label="GPU family">RTX Pro 6000 Blackwell</td><td data-label="Usable cache estimate">~90 MiB</td><td data-label="256 MiB working set">3 GPUs</td><td data-label="512 MiB working set">6 GPUs</td><td data-label="Readout">Best fit among workstation-class NVIDIA parts in this planning model.</td></tr><tr><td data-label="GPU family">B200</td><td data-label="Usable cache estimate">~180 MiB logical</td><td data-label="256 MiB working set">2 GPUs</td><td data-label="512 MiB working set">3 GPUs</td><td data-label="Readout">High HBM3e bandwidth narrows the cache advantage; use L2 mainly for reuse and latency.</td></tr><tr><td data-label="GPU family">B300 SXM6 AC (measured)</td><td data-label="Usable cache estimate">~89 MiB</td><td data-label="256 MiB working set">3 GPUs</td><td data-label="512 MiB working set">6 GPUs</td><td data-label="Readout">Measured in this B300 run: 126.5 MiB L2 and 79.1 MiB persisting budget.</td></tr></tbody></table></div>
   </section>
 
 
   <section>
-    <h2>Hardware Variants Tried</h2>
-    <p class="muted">This table keeps cross-machine claims honest: L4 and RTX PRO 6000 rows are historical report/README facts, the RTX PRO 6000 two-GPU row is topology-only because no committed multi-GPU timing artifact is present, and the B300 row comes from the current generated artifacts.</p>
-    <div class="table-wrap hardware-comparison"><table><thead><tr><th>Hardware</th><th>GPUs</th><th>Toolchain</th><th>Strict baseline</th><th>Drop-in default</th><th>Best measured</th><th>Drop-in speedup</th><th>Readout</th></tr></thead><tbody><tr><td data-label="Hardware">NVIDIA L4</td><td data-label="GPUs">1</td><td data-label="Toolchain">CUDA 12.8</td><td data-label="Strict baseline">34.8800 ms</td><td data-label="Drop-in default">2.3100 ms</td><td data-label="Best measured">2.3100 ms</td><td data-label="Drop-in speedup">15.1x</td><td data-label="Readout">Historical L4 run from README; drop-in vectorization was the main win.</td></tr><tr><td data-label="Hardware">RTX PRO 6000 Blackwell</td><td data-label="GPUs">1</td><td data-label="Toolchain">CUDA 13.0</td><td data-label="Strict baseline">13.0800 ms</td><td data-label="Drop-in default">0.3100 ms</td><td data-label="Best measured">0.0169 ms</td><td data-label="Drop-in speedup">42.2x</td><td data-label="Readout">Historical single-GPU Blackwell run; custom compact L2 path is kernel-only.</td></tr><tr><td data-label="Hardware">RTX PRO 6000 Blackwell</td><td data-label="GPUs">2</td><td data-label="Toolchain">CUDA 12.8</td><td data-label="Strict baseline">n/a</td><td data-label="Drop-in default">n/a</td><td data-label="Best measured">n/a</td><td data-label="Drop-in speedup">n/a</td><td data-label="Readout">Historical two-GPU host artifact showed PHB/no-NVLink topology; no committed multi_gpu timing artifact.</td></tr><tr><td data-label="Hardware">B300 SXM6 AC</td><td data-label="GPUs">1</td><td data-label="Toolchain">CUDA 13.0</td><td data-label="Strict baseline">14.8900 ms</td><td data-label="Drop-in default">0.1848 ms</td><td data-label="Best measured">0.0250 ms</td><td data-label="Drop-in speedup">80.6x</td><td data-label="Readout">Current report fills this row from generated artifacts.</td></tr></tbody></table></div>
+    <h2>Hardware Key Result Comparison</h2>
+    <p class="muted">Representative rows from earlier L4 and RTX PRO 6000 runs are shown alongside the current measured system. The RTX PRO 6000 two-GPU entry is a topology note only; no multi-GPU timing is claimed.</p>
+    <div class="table-wrap hardware-comparison"><table><thead><tr><th>Hardware</th><th>Representative option</th><th>Role</th><th>Result</th><th>Readout</th></tr></thead><tbody><tr><td data-label="Hardware">NVIDIA L4</td><td data-label="Representative option">Vectorized float default</td><td data-label="Role">Safe drop-in</td><td data-label="Result">2.31 ms / 15.1x</td><td data-label="Readout">Earlier L4 campaign measured the float-compatible optimization track; compact and L2 variants were not part of that run.</td></tr><tr><td data-label="Hardware">RTX PRO 6000 Blackwell, 1 GPU</td><td data-label="Representative option">Vectorized float default</td><td data-label="Role">Safe drop-in</td><td data-label="Result">0.310 ms / 42.2x</td><td data-label="Readout">Same float input/output contract as the baseline benchmark.</td></tr><tr><td data-label="Hardware">RTX PRO 6000 Blackwell, 1 GPU</td><td data-label="Representative option">uint4 + L2 U8 in/out kernel</td><td data-label="Role">Specialized kernel-only</td><td data-label="Result">0.0169 ms / 774.9x</td><td data-label="Readout">This is the maximum-performance kernel-only option: compact U8 input/output with persisting input L2. It is not a drop-in float path and does not include downstream score work.</td></tr><tr><td data-label="Hardware">RTX PRO 6000 Blackwell, 1 GPU</td><td data-label="Representative option">uint4 + L2 compact pipeline</td><td data-label="Role">Specialized producer + consumer</td><td data-label="Result">0.0419 ms / 312.1x</td><td data-label="Readout">Adjacent compact producer and compact consumer timed together; useful for coupled custom-data pipelines.</td></tr><tr><td data-label="Hardware">RTX PRO 6000 Blackwell, 2-GPU host</td><td data-label="Representative option">Topology note</td><td data-label="Role">Hardware context</td><td data-label="Result">PHB path, no NVLink timing claim</td><td data-label="Readout">The earlier two-GPU host showed PCIe/PHB connectivity. No multi-GPU timing was committed, so this is not a performance row.</td></tr><tr><td data-label="Hardware">Current run: NVIDIA B300 SXM6 AC</td><td data-label="Representative option">Vectorized float default</td><td data-label="Role">Safe drop-in</td><td data-label="Result">0.185 ms / 80.6x</td><td data-label="Readout">Recommended production default when the float input/output contract must remain unchanged.</td></tr><tr><td data-label="Hardware">Current run: NVIDIA B300 SXM6 AC</td><td data-label="Representative option">uint4 + L2 U8 in/out kernel</td><td data-label="Role">Specialized kernel-only</td><td data-label="Result">0.0233 ms / 638.7x</td><td data-label="Readout">Fastest kernel-only row in the current measurement set; it requires the compact data contract.</td></tr><tr><td data-label="Hardware">Current run: NVIDIA B300 SXM6 AC</td><td data-label="Representative option">Fused compact U8 score + L2</td><td data-label="Role">Specialized score path</td><td data-label="Result">0.0250 ms / 595.9x</td><td data-label="Readout">Best score-producing row in the current report; it is separate from the kernel-only producer result.</td></tr></tbody></table></div>
   </section>
 
   <section>

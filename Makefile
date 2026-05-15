@@ -1,9 +1,11 @@
 NVCC ?= $(shell command -v nvcc 2>/dev/null || printf /usr/local/cuda/bin/nvcc)
 COMPUTE_SANITIZER ?= $(shell command -v compute-sanitizer 2>/dev/null || printf /usr/local/cuda/bin/compute-sanitizer)
+CHROMIUM ?= $(shell command -v chromium-browser 2>/dev/null || command -v chromium 2>/dev/null || command -v google-chrome 2>/dev/null || printf chromium-browser)
 PYTHON ?= python3
 REPORT_DIR ?= reports/latest
 CLIENT_REPORT_DIR ?= reports/client-$(shell hostname)-$(shell date -u +%Y%m%dT%H%M%SZ)
 PAGES_DIR ?= docs
+PDF_REPORT ?= $(PAGES_DIR)/cuda-kernel-performance-report.pdf
 BENCH_NREPS ?= 100
 BENCH_RUNS ?= 3
 PROFILE_DIM ?= 8192
@@ -40,7 +42,7 @@ FATBIN_FLAGS += \
 	-gencode arch=compute_103,code=compute_103
 endif
 
-.PHONY: all check baseline-check specialized-check bf16-experiment layout-experiment graph-experiment pipeline-report error-report l2-report launch-sweep multi-gpu-check multi-gpu-report fatbin-check sanitize bench baseline-report profile-time profile-space hardware-report profile report client-summary client-report publish-report profile-quick fit-poly clean
+.PHONY: all check baseline-check specialized-check bf16-experiment layout-experiment graph-experiment pipeline-report error-report l2-report launch-sweep multi-gpu-check multi-gpu-report fatbin-check sanitize bench baseline-report profile-time profile-space hardware-report profile report client-summary client-report publish-report pdf-report profile-quick fit-poly clean
 
 all: optimized.x
 
@@ -147,6 +149,9 @@ client-report:
 
 publish-report:
 	$(PYTHON) tools/render_report.py --output-dir "$(REPORT_DIR)" --publish-dir "$(PAGES_DIR)"
+
+pdf-report:
+	$(CHROMIUM) --headless --disable-gpu --no-sandbox --no-pdf-header-footer --print-to-pdf="$(PDF_REPORT)" "file://$(abspath $(PAGES_DIR)/index.html)"
 
 profile-quick:
 	$(PYTHON) tools/bench.py --build --runs 1 --nreps 10 --dimx 1024 --dimy 1024 --output-dir $(REPORT_DIR)/quick

@@ -1,15 +1,18 @@
 # Optimizing Pointwise CUDA Kernel
 
-[Client-facing performance report](https://evergreentree.github.io/cuda-kernel-gen/)
+[🌐 Published report](https://evergreentree.github.io/cuda-kernel-gen/) ·
+[🧾 Local HTML report](docs/index.html) ·
+[📄 PDF report](docs/cuda-kernel-performance-report.pdf) ·
+[📝 Markdown summary](docs/artifacts/client_summary.md)
 
 - Deliver a CUDA implementation that preserves the benchmark correctness
   contract while making the performance/correctness tradeoffs explicit.
-- Keep the original problem definition, optimized default, and experimental ABI
-  variants side by side so client decisions are evidence-based.
+- Keep the original problem definition, optimized default, and experimental
+  data-contract variants side by side so client decisions are evidence-based.
 - Produce repeatable, machine-specific reports that combine timing, profiler,
   hardware, memory-footprint, and visual summaries.
-- Separate drop-in optimizations from ABI-changing options such as FP16 output,
-  compact fixed-point storage, and compact downstream consumers.
+- Separate drop-in optimizations from data-contract-changing options such as
+  FP16 output, compact fixed-point storage, and compact downstream consumers.
 - Productize the tuning workflow: every new machine should start with one report
   command, one readable summary, and ledger-backed recommendations.
 
@@ -58,6 +61,16 @@ client can change storage format or downstream consumption.
   and client-summary exporters.
 - Generated binaries, profiler reports, and build scratch files are ignored by
   `.gitignore`.
+
+## CUDA Harness Notes
+
+`src/cuda_prog.cu` is both the optimized implementation and the experiment
+harness. It intentionally keeps named variants visible because those names feed
+CSV, JSON, README, and HTML artifacts. When adding another variant, prefer the
+existing helpers for fixed-range normalization, affine evaluation, compact
+packing/unpacking, and L2 producer/consumer launch wrappers before copying a
+kernel body. The safest future cleanup areas are compact transform helper reuse,
+shared launch preflight checks, and the repeated verify/benchmark/report blocks.
 
 ## Build And Run
 
@@ -199,7 +212,8 @@ make error-report
 Builds an opt-in precision reporting binary and writes `error_stats.csv` plus
 `error_stats.json` under `REPORT_DIR`. This records miss counts, miss rates,
 max/mean/RMS relative error, absolute error, and relative-error histogram buckets
-for FP16, BF16, compact U8, compact U4, and related ABI-changing outputs.
+for FP16, BF16, compact U8, compact U4, and related data-contract-changing
+outputs.
 
 ```bash
 make l2-report
@@ -227,7 +241,9 @@ Re-runs the offline least-squares fit for the fixed input interval and writes
 `reports/latest/poly_fits.json`. This documents which polynomial degrees are
 needed to stay within the benchmark's `1e-3` tolerance.
 
-## Current Optimization
+## Optimization Story
+
+### Drop-In Default
 
 The original kernel launched one warp per SM and had each warp access one
 column across many rows. That pattern underused memory transactions and left
@@ -243,6 +259,32 @@ times only the kernel body with CUDA events. This keeps benchmark-specialized
 variants inside their valid input domain without counting host-to-device reset
 copies as kernel time.
 
+### Affine And Compact Path
+
+The affine path is the benchmark-specific step. Because the input range is
+fixed at `[1.0, 1.01]` and the harness runs exactly five dependent iterations,
+the final lane values are smooth over a tiny domain. We normalize the varying
+lanes with `s = (value - 1.005) * 200`. The `log` and `tan` lanes become fitted
+affine functions of `s`, while the `cos` and `sin` lanes collapse to constants
+(`OUT_Y_CONST` and `OUT_Z_CONST`). That removes SFU work while staying inside
+the benchmark's `1e-3` tolerance.
+
+The compact path follows what the affine fit reveals about the data: only lanes
+0 and 3, named `x/w` in the code, still vary. The experiments pack just those
+two lanes as `float2`, `half2`, U16, U8, or U4. U8 is the lowest passing input
+encoding; U4 is kept as an expected-fail boundary. The fastest compact producer
+writes only U8 `x/w` output and treats `y/z` as implicit constants, which is a
+custom data contract rather than a drop-in float output.
+
+The B300 fused-score experiment is the next boundary step. When the downstream
+stage only needs the synthetic `score`, the fused kernel reads compact U8
+`x/w`, applies the affine transform, computes `downstream_score`, and skips
+materializing the intermediate compact U8 output buffer.
+
+## Hardware Result Tables
+
+### NVIDIA L4
+
 Measured on the local NVIDIA L4 with CUDA 12.8. Speedup is relative to the
 strict original problem definition on the same GPU:
 
@@ -256,15 +298,15 @@ strict original problem definition on the same GPU:
 The current default is about `15.1x` faster than the original strict build on
 the local L4.
 
-## Blackwell Results
+### RTX PRO 6000 Blackwell
 
 Measured on the local NVIDIA RTX PRO 6000 Blackwell Server Edition
 (`sm_120`, 188 SMs) with CUDA 13.0. Speedup is relative to the strict original
-problem definition on the same GPU; ABI-changing rows are not drop-in
+problem definition on the same GPU; data-contract-changing rows are not drop-in
 replacements for the float in/out default. Expected-fail rows are boundary
 probes, not acceptable winners.
 
-| Build / variant | ABI / role | Correct | Time per launch | Speedup |
+| Build / variant | Data contract / role | Correct | Time per launch | Speedup |
 | --- | --- | --- | ---: | ---: |
 | Original problem definition | float in/out | yes | 13.08 ms | 1.0x |
 | Original row-stride ablation | float in/out | yes | 6.59 ms | 2.0x |
@@ -295,7 +337,7 @@ probes, not acceptable winners.
 The durable hypotheses, profiler mechanisms, and stop/revisit decisions live in
 the Experiment Ledger below; this section is intentionally just the scoreboard.
 
-## B300 SXM6 AC Results
+### B300 SXM6 AC
 
 Measured on the local NVIDIA B300 SXM6 AC (`sm_103`, 148 SMs, 275040 MiB HBM)
 with CUDA 13.0 and driver 580.126.09. CUDA 12.8 cannot compile
@@ -303,7 +345,7 @@ with CUDA 13.0 and driver 580.126.09. CUDA 12.8 cannot compile
 13.0+ for native B300 builds. Speedup is relative to the strict original problem
 definition on the same GPU.
 
-| Build / variant | ABI / role | Correct | Time per launch | Speedup |
+| Build / variant | Data contract / role | Correct | Time per launch | Speedup |
 | --- | --- | --- | ---: | ---: |
 | Original problem definition | float in/out | yes | 14.89 ms | 1.0x |
 | Original row-stride ablation | float in/out | yes | 6.481 ms | 2.3x |
@@ -331,7 +373,7 @@ setting was `THREADS_PER_BLOCK=512`, `BLOCKS_PER_SM=48`,
 `ITEMS_PER_THREAD=1` at `0.1839 ms`, only about `0.6%` ahead of the current
 `512/32/1` default.
 
-### L2 Residency Result And Sizing Model
+## Extreme Path And L2 Residency
 
 The measured L2 result is an extreme-performance option, not the recommended
 default. There are two useful combinations with the current U8 input + U8 output
@@ -361,10 +403,10 @@ NVLink) unless a real `multi_gpu.json` timing artifact is present; do not treat
 it as a measured multi-GPU speedup row.
 
 This is valuable for some customers seeking extreme latency, including HFT-like
-pipelines, but it is a trade-off: the product has to own a custom compact ABI,
-keep producer and consumer stages adjacent, and absorb library and maintenance
-work. For larger working sets, cache residency only helps when work is
-partitioned so each GPU or die keeps its shard local; gathering over PCIe can
+pipelines, but it is a trade-off: the product has to own a custom compact data
+contract, keep producer and consumer stages adjacent, and absorb library and
+maintenance work. For larger working sets, cache residency only helps when work
+is partitioned so each GPU or die keeps its shard local; gathering over PCIe can
 erase the benefit. Nsight still reads this path as memory-path limited rather
 than compute-bound: L2 residency helps the read side, but the score stream still
 has to be written and the kernels still move global-memory transactions. On
@@ -406,7 +448,7 @@ For a `256 MiB` working set, such as a 16-bit output path:
 | B300 SXM6 AC | 3 | ~267 MB | Tight under the 70% model and tighter under the measured persisting limit. |
 | H100 / H200 | 8 | ~280 MB | Impractical scale. |
 
-### Tensor Core Decision
+## Tensor Core Decision
 
 Tensor Cores are not a wanted default path for the standalone benchmark. The
 CUDA WMMA model is warp-level matrix multiply-accumulate. NVIDIA's CUDA C++
@@ -422,8 +464,8 @@ The practical Tensor Core path is conditional on surrounding product context:
    pointwise work into that operation's epilogue and let Tensor Cores serve the
    real matrix work.
 2. If the client only wants a marketing/research Tensor Core demo, prototype a
-   padded polynomial-GEMM or lookup-GEMM separately and label it as an
-   ABI-changing approximation experiment.
+   padded polynomial-GEMM or lookup-GEMM separately and label it as a
+   data-contract-changing approximation experiment.
 3. Do not put Tensor Core work on the default roadmap for the standalone
    kernel. The next practical optimization is fusion that removes global stores,
    not a contrived matrix reformulation.
@@ -436,36 +478,36 @@ Epilogue](https://docs.nvidia.com/cutlass/latest/media/docs/cpp/gemm_api.html#ef
 ## Experiment Ledger
 
 Use this ledger before starting a new optimization pass. It records the
-hypothesis, the measured result on Blackwell, the profiler or SASS mechanism,
-and the practical takeaway.
+hypothesis, the measured result, the profiler or SASS mechanism, and the
+practical takeaway.
 
 | Hypothesis / variant | Result number | Nsight or SASS mechanism | Takeaway |
 | --- | ---: | --- | --- |
 | Original row-stride launch is the headline bug | `13.21 ms` strict baseline, `5.67 ms` row-stride fast-math ablation | Warp lanes were separated by `dimx * sizeof(float)` and the launch exposed too few resident warps | Do not revisit small math tweaks until memory coalescing and launch geometry stay fixed |
 | Scalar coalescing plus fast math should dominate early wins | `0.51 ms` | Contiguous global access and enough blocks to fill the GPU hide SFU latency much better | This is the main semantic-preserving structural fix |
-| `float4` branch fusion should improve memory handling and divergence | `0.31 ms` | Default vector kernel emits `LDG.E.128` and `STG.E.128`; one thread owns the four `ix % 4` lanes | Keep this as the default shape while the ABI is float input and float output |
+| `float4` branch fusion should improve memory handling and divergence | `0.31 ms` | Default vector kernel emits `LDG.E.128` and `STG.E.128`; one thread owns the four `ix % 4` lanes | Keep this as the default shape while the data contract is float input and float output |
 | More ILP per thread might hide SFU latency | `0.34 ms` | ILP path used `37` registers/thread with no spills, but reduced scheduling freedom enough to lose | Do not make ILP the default for this problem size |
 | Blackwell launch geometry needs retuning | Best measured setting remained near `THREADS_PER_BLOCK=512`, `BLOCKS_PER_SM=32`; nearby sweeps landed around `0.319-0.327 ms` | Nsight reported about `86%` achieved occupancy and `41` active warps/SM on the default | Re-sweep only after toolkit, clocks, dimensions, or default kernel shape change |
 | Register caps / `__launch_bounds__` can lift occupancy | `-maxrregcount=16/20/24/28/32` did not improve the default | ptxas reports no spills and the default uses about `26` registers/thread | Not a current limiter; use caps only if a future variant inflates registers |
 | Native SASS may differ from PTX JIT on Blackwell | Both native `sm_120` and `CUDA_FORCE_PTX_JIT=1` measured about `0.31 ms` | Driver JIT did not produce a materially faster path than offline ptxas | Keep fatbin/PTX for compatibility, not as a speed lever right now |
 | Fixed-range quadratic polynomial can remove transcendental calls | `0.309-0.310 ms`, correctness passes | SFU pressure disappears, but Nsight still shows about `91%` DRAM throughput and only about `48%` SM throughput | Math is no longer the wall; global writeback dominates |
 | Sparse polynomial / sparse affine can exploit the narrow input interval | `0.309-0.310 ms`, correctness passes | Offline fit shows `cos`/`sin` can be constants and `log`/`tan` can be affine; sparse affine uses about `22` registers/thread | Good documentation of the benchmark-specialized bound, but still tied with default |
-| FP16 output can reduce the writeback wall if the ABI can change | `0.2572-0.2576 ms`, correctness passes; packed 64-bit store sampled at `0.2573 ms` | Nsight on the sparse FP16 kernel reports `93.84%` DRAM throughput, `5.37%` SM throughput, and the same L1 load-sector footprint as the loaded variant | This is the first post-`float4` speedup; it is real but ABI-changing |
+| FP16 output can reduce the writeback wall if the output contract can change | `0.2572-0.2576 ms`, correctness passes; packed 64-bit store sampled at `0.2573 ms` | Nsight on the sparse FP16 kernel reports `93.84%` DRAM throughput, `5.37%` SM throughput, and the same L1 load-sector footprint as the loaded variant | This is the first post-`float4` speedup; it is real but changes the output format |
 | Compact input layout can reduce actual input sectors | `0.1687 ms` median over 3 full-size runs | Nsight reports `137.952 us`, `91.8%` DRAM throughput, `134 MB` DRAM reads, and `4,194,304` L1 load sectors versus `16,777,216` for sparse AoS | Strong setup/layout-changing step; count packing cost unless a producer can emit compact `x/w` directly |
 | Compact FP16 input might cut compact `x/w` traffic again | `0.1210 ms`, expected failure; first checked miss had `rdiff 0.001544` | Same logical traffic as U16 fixed-point, but FP16 quantization near `1.0` is too coarse for the tangent-sensitive lane | Do not use raw FP16 input under the current tolerance |
 | Compact U16 fixed-point input can keep 16-bit storage and tolerance | `0.1243 ms` median over 3 full-size runs, correctness passes | Nsight reports `93.312 us`, `88.62%` DRAM throughput, `13.42%` SM throughput, `67 MB` DRAM reads, `63 MB` DRAM writes, and `2,097,152` L1 load sectors | Strong 16-bit storage result, but U8 supersedes it as the fastest kernel-side variant |
 | Compact U8 fixed-point input can cut input sectors again | `0.1051 ms` median over 3 full-size runs, correctness passes | Nsight reports `76.896 us`, `78.11%` DRAM throughput, `17.16%` SM throughput, `34 MB` DRAM reads, `63 MB` DRAM writes, and `1,048,576` L1 load sectors | Fastest FP16-output kernel-side result; output writes then become the dominant traffic |
 | Packed U4 fixed-point input is below the tolerance floor | `0.0998 ms`, expected failure; first checked miss had `rdiff 0.001280` | Nsight reports `68.096 us`, `69.67%` DRAM throughput, `20.41%` SM throughput, `17 MB` DRAM reads, `60 MB` DRAM writes, and `524,288` L1 load sectors | U4 proves there is one more small speed step, but the tangent lane exceeds tolerance; keep U8 as the lowest valid input encoding |
-| Custom U8 x/w output can attack the final write wall | `0.0247 ms` median over 3 full-size runs, correctness passes | Nsight reports `40.160 us`, `53.7%` DRAM throughput, `37.9%` SM throughput, `34 MB` DRAM reads, `1,048,576` L1 load sectors, and `1,048,576` L1 store sectors | Fastest benchmark-specialized path; very ABI-changing because y/z are implicit constants and x/w require custom decode |
+| Custom U8 x/w output can attack the final write wall | `0.0247 ms` median over 3 full-size runs, correctness passes | Nsight reports `40.160 us`, `53.7%` DRAM throughput, `37.9%` SM throughput, `34 MB` DRAM reads, `1,048,576` L1 load sectors, and `1,048,576` L1 store sectors | Fastest benchmark-specialized path; it changes the data contract heavily because y/z are implicit constants and x/w require custom decode |
 | GPU packing from original AoS can feed compact input | Pack alone `0.2565 ms`; pack plus compact consumer `0.4448 ms` | Pack kernel still reads `268 MB`, writes about `81 MB`, and requests `16,777,216` L1 load sectors | Not an end-to-end win when starting from the original float grid; compact layout must come from upstream or amortization |
 | GPU packing from original AoS can feed compact U16 input | Pack alone `0.2115 ms`; pack plus U16 compact consumer `0.3535 ms` | Nsight on the U16 pack reports `210.272 us`, `92.81%` DRAM throughput, `268 MB` reads, `43 MB` writes, `16,777,216` L1 load sectors, and `2,097,152` L1 store sectors | Better than FP32 compact packing, but still slower than the `0.31 ms` default when setup is paid every launch |
 | GPU packing from original AoS can feed compact U8 input | Pack alone `0.1826 ms`; pack plus U8 compact consumer `0.3097 ms` median over 3 full-size runs | Nsight on the U8 pack reports `196.320 us`, `92.78%` DRAM throughput, `268 MB` reads, `23 MB` writes, `16,777,216` L1 load sectors, and `1,048,576` L1 store sectors | This reaches parity with the default when setup is paid every launch; it becomes a win only if packing is fused, reused, or provided upstream |
-| GPU packing plus custom U8 output can win end-to-end | `0.2500 ms` median over 3 full-size runs from original AoS input | Reuses the measured U8 pack and custom U8-output consumer; logical traffic drops to `320 MiB` for pack input/write plus compact output path | First setup-paid compact win, but it requires the strongest ABI specialization: U8 x/w input, U8 x/w output, and implicit y/z constants |
+| GPU packing plus custom U8 output can win end-to-end | `0.2500 ms` median over 3 full-size runs from original AoS input | Reuses the measured U8 pack and custom U8-output consumer; logical traffic drops to `320 MiB` for pack input/write plus compact output path | First setup-paid compact win, but it requires the strongest data-contract specialization: U8 x/w input, U8 x/w output, and implicit y/z constants |
 | Decoding custom U8 output back to float can erase the win | Decode-only `0.1972 ms`; pack plus custom U8 output plus float decode `0.4356 ms` median over 3 full-size runs | Nsight on decode reports `177.344 us`, `82.98%` DRAM throughput, `34 MB` reads, `199 MB` writes, `1,048,576` L1 load sectors, and `8,388,608` L1 store sectors | Custom output is only attractive if downstream consumes compact form or decode is fused with useful work |
 | A realistic compact downstream consumer can preserve the custom-output win | Float-output projection `0.2125 ms`; compact-U8 projection `0.0274 ms`; full float pipeline plus projection `0.5789 ms`; setup-paid compact pipeline plus projection `0.2866 ms` | Nsight reports the float consumer at `211.168 us`, `92.61%` DRAM throughput, `268 MB` reads, and `8,388,608` L1 load sectors; compact consumer at `36.640 us`, `80.3%` DRAM throughput, `34 MB` reads, and `1,048,576` L1 load sectors | Custom U8 output is viable only when the next stage consumes compact x/w directly; this is the current best measured end-to-end specialized path |
-| Compact U8 input/output can benefit from L2 residency | Kernel-only producer with persisting compact input `0.0227 ms`; producer after a `256 MiB` L2-thrashing pass `0.0704 ms`; consumer after producer `0.0269 ms`; persisting-L2 producer+consumer total `0.0466 ms` versus `0.0547 ms` without it | Blackwell reports `128 MiB` L2 and `80 MiB` persisting set-aside; compact input/output are each `32 MiB`, so either side fits in the persisting window | Real lever for compact producer-consumer pipelines and HFT-like latency work, but only when custom ABI ownership, data reuse, and maintenance cost are acceptable; remeasure on B200-class HBM3e systems |
+| Compact U8 input/output can benefit from L2 residency | Kernel-only producer with persisting compact input `0.0227 ms`; producer after a `256 MiB` L2-thrashing pass `0.0704 ms`; consumer after producer `0.0269 ms`; persisting-L2 producer+consumer total `0.0466 ms` versus `0.0547 ms` without it | Blackwell reports `128 MiB` L2 and `80 MiB` persisting set-aside; compact input/output are each `32 MiB`, so either side fits in the persisting window | Real lever for compact producer-consumer pipelines and HFT-like latency work, but only when custom data-contract ownership, data reuse, and maintenance cost are acceptable; remeasure on B200-class HBM3e systems |
 | Wider per-thread U8 producer packing can improve the fastest compact kernel | `uint4` producer `0.0171 ms`; `uint4` producer plus persisting compact input `0.0169 ms`; `uint4` producer plus existing compact consumer and persisting output `0.0419 ms`; attempted `uint4` compact consumer `0.1316 ms` | Nsight sectors were already coalesced at `1,048,576` load sectors and `1,048,576` store sectors; `uint4` still lowers loop/address overhead by processing eight compact groups per thread. The `uint4` producer profiled at about `80%` memory throughput, `47%` SM throughput, and `0%` tensor-pipe activity; consumer-side vectorization bloats scalar unpack and store work | Keep `uint4` for the compact producer; do not vectorize the compact consumer this way |
-| Fusing compact U8 input directly into the score consumer can remove the intermediate compact output | On B300, direct fused score measured `0.0316 ms`; persisting compact input measured `0.0250 ms`, `1.83x` faster than the `0.0458 ms` uint4 producer-plus-consumer path | The fused kernel reads compact U8 input and writes the score stream directly, removing the compact U8 output write/read and one launch while preserving the `1e-3` consumer check | Keep this as the fastest score-producing custom ABI path when compact input is already available or reused; it does not replace the standalone U8-output producer when downstream really needs compact output |
+| Fusing compact U8 input directly into the score consumer can remove the intermediate compact output | On B300, direct fused score measured `0.0316 ms`; persisting compact input measured `0.0250 ms`, `1.83x` faster than the `0.0458 ms` uint4 producer-plus-consumer path | The fused kernel reads compact U8 input and writes the score stream directly, removing the compact U8 output write/read and one launch while preserving the `1e-3` consumer check | Keep this as the fastest score-producing custom data-contract path when compact input is already available or reused; it does not replace the standalone U8-output producer when downstream really needs compact output |
 | BF16 output might be cheaper enough while staying inside tolerance | `0.2570 ms`, expected failure; first checked element had `rdiff 0.001955` | BF16 has the same output byte count as FP16 here but too few mantissa bits for the benchmark tolerance | Do not use BF16 unless the tolerance relaxes or output error is judged differently downstream |
 | SASS should confirm what `tan` actually costs | Default vector SASS contains `MUFU.SIN`, `MUFU.COS`, and `MUFU.RCP` in the tangent lane | `__tanf` lowers to sin/cos/reciprocal-like work, so explicit `sincos` sharing is not free across independent lanes | Worth revisiting only if the iterative scalar path becomes the target again |
 | CUDA Graph replay can amortize launch overhead | On `64 x 64`, stream H2D+kernel replay measured `0.014572 ms`; graph replay measured `0.013954 ms` | Graph replay trims host submission overhead, but the tested end-to-end replay still includes the H2D copy and tiny kernel work | Useful only for many small launches; it is not a lever for the full-size event-timed kernel |
@@ -499,7 +541,8 @@ directories:
   host-gather timing, topology, and partition ranges from `make
   multi-gpu-report`.
 - `error_stats.json` / `error_stats.csv`: precision distributions for
-  ABI-changing output and compact-storage variants from `make error-report`.
+  data-contract-changing output and compact-storage variants from
+  `make error-report`.
 - `pipeline_summary.json` / `pipeline_summary.csv` / `pipeline_summary.md`:
   compact-layout setup, decode, and downstream-consumer comparisons from `make
   pipeline-report`.
@@ -552,16 +595,16 @@ architecture.
    byte/sector reduction. If it becomes compute-, SFU-, occupancy-, or
    launch-sensitive, reopen only the matching ledger rows.
 
-3. Keep ABI decisions explicit.
+3. Keep data-contract decisions explicit.
    Treat the float in/out vector kernel as the semantic-preserving baseline.
    Treat FP16 output, compact U8 input/output, and compact downstream consumers
-   as separate ABI tracks with their own result rows.
+   as separate data-contract tracks with their own result rows.
 
 4. Re-test the compact consumer path early.
    On Blackwell, custom U8 output only paid off when the next stage consumed
    compact `x/w` directly. Re-measure the float projection, compact projection,
-   float pipeline, and setup-paid compact pipeline before recommending that ABI
-   on any target.
+   float pipeline, and setup-paid compact pipeline before recommending that
+   data contract on any target.
 
 5. Add one target-machine results section.
    Do not overwrite the Blackwell table. Add a new concise scoreboard plus any
@@ -583,8 +626,9 @@ architecture.
 - Keep each hypothesis in the Experiment Ledger before or immediately after
   running it. The table should answer: what changed, what number moved, what
   mechanism explains it, and whether to revisit.
-- Separate semantic-preserving paths from ABI-changing paths. FP16 output is a
-  real win, but it should not silently replace the float-output default.
+- Separate semantic-preserving paths from data-contract-changing paths. FP16
+  output is a real win, but it should not silently replace the float-output
+  default.
 - Prefer one winning full sweep and cheap single-sample probes for likely
   non-winners. The CPU checker and input reset copies dominate wall time.
 - Track actual memory sectors with Nsight when a sparse idea looks better on
@@ -597,7 +641,7 @@ architecture.
 - Treat `hardware.json` as part of every serious result. It captures the device
   count, memory headroom, and row-shard plan needed to explain whether a win is
   single-GPU-specific or likely to scale.
-- Keep commits atomic by axis: launch geometry, approximation, ABI/storage,
+- Keep commits atomic by axis: launch geometry, approximation, storage contract,
   profiling/reporting, and documentation.
 
 ## References

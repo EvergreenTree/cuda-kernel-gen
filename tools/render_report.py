@@ -37,10 +37,9 @@ PRIMARY_VARIANTS = (
     "vector4_coalesced_fast",
     "vector4_affine_half_output_sparse_experimental",
     "compact_u8_xw_affine_half_output_experimental",
-    "compact_u8_fused_score_direct_persisting_input_experimental",
     "compact_u8_producer_uint4_persisting_input_experimental",
     "compact_u8_producer_uint4_consumer_persisting_l2_total_experimental",
-    "compact_u8_xw_u8_output_consumer_with_gpu_pack_pipeline_experimental",
+    "compact_u8_fused_score_direct_persisting_input_experimental",
 )
 
 CLIENT_VARIANTS = (
@@ -80,7 +79,7 @@ VARIANT_COPY = {
     "vector4_coalesced_fast": {
         "label": "Vectorized float default",
         "track": "Drop-in",
-        "fit": "Recommended when the float input/output ABI must stay unchanged.",
+        "fit": "Recommended when the float input/output contract must stay unchanged.",
         "tone": "safe",
     },
     "vector4_affine_loaded_fixed_range_experimental": {
@@ -91,55 +90,55 @@ VARIANT_COPY = {
     },
     "vector4_affine_half_output_sparse_experimental": {
         "label": "FP16 output",
-        "track": "Output ABI",
+        "track": "Output contract",
         "fit": "Useful when the client can accept half-precision output storage.",
         "tone": "option",
     },
     "compact_xw_affine_half_output_experimental": {
         "label": "Compact FP32 two-value input + FP16 output",
-        "track": "Input/output ABI",
+        "track": "Compact contract",
         "fit": "Upper-bound compact input shape before fixed-point quantization.",
         "tone": "option",
     },
     "compact_u16_xw_affine_half_output_experimental": {
         "label": "Compact U16 input + FP16 output",
-        "track": "Input/output ABI",
+        "track": "Compact contract",
         "fit": "Preserves tolerance while storing only the two changing values in each four-value group.",
         "tone": "option",
     },
     "compact_u8_xw_affine_half_output_experimental": {
         "label": "Compact U8 input + FP16 output",
-        "track": "Input/output ABI",
+        "track": "Compact contract",
         "fit": "Best when an upstream producer can emit only the two changing values directly.",
         "tone": "option",
     },
     "compact_u8_xw_affine_u8_xw_output_experimental": {
         "label": "Compact U8 input + U8 output",
-        "track": "Specialized ABI",
+        "track": "Specialized contract",
         "fit": "Fastest kernel-only result; does not include a downstream consumer.",
         "tone": "max",
     },
     "compact_u8_producer_persisting_input_experimental": {
         "label": "L2-persisting U8 in/out kernel",
-        "track": "Extreme ABI",
+        "track": "Specialized contract",
         "fit": "Fastest kernel-only result when compact input is reused and fits in persisting L2.",
         "tone": "max",
     },
     "compact_u8_producer_uint4_experimental": {
         "label": "uint4-packed U8 in/out kernel",
-        "track": "Specialized ABI",
+        "track": "Specialized contract",
         "fit": "Processes eight compact groups per thread; faster producer without relying on L2 hints.",
         "tone": "max",
     },
     "compact_u8_producer_uint4_persisting_input_experimental": {
         "label": "uint4 + L2 U8 in/out kernel",
-        "track": "Extreme ABI",
-        "fit": "Fastest kernel-only result: vectorized compact loads/stores plus persisting compact input.",
+        "track": "Specialized contract",
+        "fit": "Fastest kernel-only result: compact U8 input/output with persisting input L2.",
         "tone": "max",
     },
     "compact_u8_producer_consumer_persisting_l2_total_experimental": {
         "label": "L2-resident U8 in/out pipeline",
-        "track": "Extreme ABI",
+        "track": "Specialized pipeline",
         "fit": "U8 input, U8 output, and compact consumer timed together with persisting L2.",
         "tone": "max",
     },
@@ -151,7 +150,7 @@ VARIANT_COPY = {
     },
     "compact_u8_producer_uint4_consumer_persisting_l2_total_experimental": {
         "label": "uint4 + L2 compact pipeline",
-        "track": "Extreme ABI",
+        "track": "Specialized pipeline",
         "fit": "Best adjacent producer-consumer path: uint4 producer plus persisting compact output.",
         "tone": "max",
     },
@@ -162,7 +161,7 @@ VARIANT_COPY = {
         "tone": "max",
     },
     "compact_u8_fused_score_direct_persisting_input_experimental": {
-        "label": "Fused compact U8 input to score + L2",
+        "label": "Fused compact U8 score + L2",
         "track": "Fused pipeline",
         "fit": "Fastest score-producing path if compact input is reused and can stay resident in L2.",
         "tone": "max",
@@ -176,7 +175,7 @@ VARIANT_COPY = {
     "compact_u8_xw_u8_output_consumer_with_gpu_pack_pipeline_experimental": {
         "label": "Compact U8 output + score pipeline",
         "track": "Pipeline",
-        "fit": "Best end-to-end specialized path when compact output is consumed directly.",
+        "fit": "Setup-paid compact-output pipeline; retained as a comparison, not the extreme path.",
         "tone": "option",
     },
     "scalar_coalesced_fast": {
@@ -221,46 +220,49 @@ CACHE_PLANNING_ROWS = (
         "~89 MiB",
         "3 GPUs",
         "6 GPUs",
-        "Measured on this host: 126.5 MiB L2 and 79.1 MiB persisting budget.",
+        "Measured in this B300 run: 126.5 MiB L2 and 79.1 MiB persisting budget.",
     ),
 )
 
 HARDWARE_COMPARISON_ROWS = (
     {
         "hardware": "NVIDIA L4",
-        "gpus": "1",
-        "toolchain": "CUDA 12.8",
-        "strict_ms": 34.88,
-        "dropin_ms": 2.31,
-        "best_ms": 2.31,
-        "readout": "Historical L4 run from README; drop-in vectorization was the main win.",
+        "option": "Vectorized float default",
+        "role": "Safe drop-in",
+        "time_ms": 2.31,
+        "speedup": 15.1,
+        "readout": "Earlier L4 campaign measured the float-compatible optimization track; compact and L2 variants were not part of that run.",
     },
     {
-        "hardware": "RTX PRO 6000 Blackwell",
-        "gpus": "1",
-        "toolchain": "CUDA 13.0",
-        "strict_ms": 13.08,
-        "dropin_ms": 0.310,
-        "best_ms": 0.0169,
-        "readout": "Historical single-GPU Blackwell run; custom compact L2 path is kernel-only.",
+        "hardware": "RTX PRO 6000 Blackwell, 1 GPU",
+        "option": "Vectorized float default",
+        "role": "Safe drop-in",
+        "time_ms": 0.310,
+        "speedup": 42.2,
+        "readout": "Same float input/output contract as the baseline benchmark.",
     },
     {
-        "hardware": "RTX PRO 6000 Blackwell",
-        "gpus": "2",
-        "toolchain": "CUDA 12.8",
-        "strict_ms": None,
-        "dropin_ms": None,
-        "best_ms": None,
-        "readout": "Historical two-GPU host artifact showed PHB/no-NVLink topology; no committed multi_gpu timing artifact.",
+        "hardware": "RTX PRO 6000 Blackwell, 1 GPU",
+        "option": "uint4 + L2 U8 in/out kernel",
+        "role": "Specialized kernel-only",
+        "time_ms": 0.0169,
+        "speedup": 774.9,
+        "readout": "This is the maximum-performance kernel-only option: compact U8 input/output with persisting input L2. It is not a drop-in float path and does not include downstream score work.",
     },
     {
-        "hardware": "B300 SXM6 AC",
-        "gpus": "1",
-        "toolchain": "CUDA 13.0",
-        "strict_ms": None,
-        "dropin_ms": None,
-        "best_ms": None,
-        "readout": "Current report fills this row from generated artifacts.",
+        "hardware": "RTX PRO 6000 Blackwell, 1 GPU",
+        "option": "uint4 + L2 compact pipeline",
+        "role": "Specialized producer + consumer",
+        "time_ms": 0.0419,
+        "speedup": 312.1,
+        "readout": "Adjacent compact producer and compact consumer timed together; useful for coupled custom-data pipelines.",
+    },
+    {
+        "hardware": "RTX PRO 6000 Blackwell, 2-GPU host",
+        "option": "Topology note",
+        "role": "Hardware context",
+        "result": "PHB path, no NVLink timing claim",
+        "readout": "The earlier two-GPU host showed PCIe/PHB connectivity. No multi-GPU timing was committed, so this is not a performance row.",
     },
 )
 
@@ -297,10 +299,29 @@ def fmt_speedup(value, digits=1):
     return "n/a" if value is None else f"{value:.{digits}f}x"
 
 
+def fmt_compact_ms(value):
+    if value is None:
+        return "n/a"
+    if value < 0.1:
+        return f"{value:.4f} ms"
+    if value < 1:
+        return f"{value:.3f} ms"
+    return f"{value:.2f} ms"
+
+
 def speedup(reference_ms, candidate_ms):
     if not reference_ms or not candidate_ms:
         return None
     return reference_ms / candidate_ms
+
+
+def result_summary(ms, strict_ms, label=None, speedup_value=None):
+    if ms is None:
+        return "n/a" if not label else f"n/a ({esc(label)})"
+    result = f"{fmt_compact_ms(ms)} / {fmt_speedup(speedup_value or speedup(strict_ms, ms))}"
+    if label:
+        result += f" ({esc(label)})"
+    return result
 
 
 def variant_label(name):
@@ -774,12 +795,12 @@ def l2_residency_section(l2_cache, strict_ms):
 
     return f"""
   <section class="l2-section">
-    <h2>Extreme L2-Resident Path</h2>
+    <h2>Maximum-Performance L2 Path</h2>
     <div class="l2-copy">
-      <h3>When a custom ABI is worth considering</h3>
+      <h3>When a compact data contract is worth considering</h3>
       <p>This path is aimed at latency-sensitive customers who can own the compact data contract, producer/consumer coupling, and maintenance burden. It is not the safe library default.</p>
       <p class="muted">There are two useful combinations. First, the current best kernel-only shape uses uint4 loads/stores to process eight compact groups per thread, then keeps compact U8 input in persisting L2; that measured {fmt_ms(producer.get('median_ms'))}, or {fmt_speedup(producer_strict_gain)} against the original client baseline. Second, the uint4 compact producer can write U8 x/w output and keep that output resident for an adjacent compact consumer; that producer-plus-consumer path measured {fmt_ms(total.get('median_ms'))}, or {fmt_speedup(strict_gain)}.</p>
-      <p class="muted">The kernel-only L2 result is the fastest measured row on this host, but it depends on compact input reuse and a working set that fits the persisting-L2 budget. On B200-class systems, very high HBM3e bandwidth narrows the cache advantage, so this tactic should be remeasured rather than assumed.</p>
+      <p class="muted">The kernel-only L2 result is the fastest measured row on this system, but it depends on compact input reuse and a working set that fits the persisting-L2 budget. On B200-class systems, very high HBM3e bandwidth narrows the cache advantage, so this tactic should be remeasured rather than assumed.</p>
       <p class="muted">The L2 path does not make the workload compute-bound. It reduces read pressure, but the compact consumer still shows a memory-path profile because it writes the score stream and moves predictable global-memory transactions.</p>
     </div>
     {fact_grid([
@@ -806,48 +827,96 @@ def l2_residency_section(l2_cache, strict_ms):
 """
 
 
-def hardware_comparison(summary, baseline, l2_cache):
+def hardware_comparison(summary, baseline, l2_cache, hardware):
     variants = summary.get("variants", {})
     l2_variants = l2_cache.get("variants", {})
-    b300_strict = baseline.get("time_ms")
-    b300_dropin = variants.get("vector4_coalesced_fast", {}).get("median_ms")
-    b300_fused = l2_variants.get(
-        "compact_u8_fused_score_direct_persisting_input_experimental", {}
-    ).get("median_ms")
-    b300_best = b300_fused or l2_variants.get(
+    current_strict = baseline.get("time_ms")
+    current_dropin = variants.get("vector4_coalesced_fast", {}).get("median_ms")
+    current_best_l2 = l2_variants.get(
         "compact_u8_producer_uint4_persisting_input_experimental", {}
     ).get("median_ms")
+    current_best = current_best_l2 or variants.get(
+        "compact_u8_xw_affine_u8_xw_output_experimental", {}
+    ).get("median_ms")
+    current_fused = l2_variants.get(
+        "compact_u8_fused_score_direct_persisting_input_experimental", {}
+    ).get("median_ms")
+    current_adjacent = l2_variants.get(
+        "compact_u8_producer_uint4_consumer_persisting_l2_total_experimental", {}
+    ).get("median_ms")
+    current_score = current_fused or current_adjacent
+    current_score_label = (
+        "Fused compact U8 score + L2" if current_fused else "uint4 + L2 compact pipeline"
+    )
+    smi = hardware.get("nvidia_smi", {})
+    devices = smi.get("devices", [])
+    device_name = (
+        devices[0].get("name")
+        if devices
+        else summary.get("gpu", {}).get("name") or "current GPU"
+    )
 
     rows = []
     for item in HARDWARE_COMPARISON_ROWS:
-        strict_ms = item["strict_ms"]
-        dropin_ms = item["dropin_ms"]
-        best_ms = item["best_ms"]
-        if item["hardware"] == "B300 SXM6 AC":
-            strict_ms = b300_strict
-            dropin_ms = b300_dropin
-            best_ms = b300_best
         rows.append(
             [
                 esc(item["hardware"]),
-                esc(item["gpus"]),
-                esc(item["toolchain"]),
-                fmt_ms(strict_ms),
-                fmt_ms(dropin_ms),
-                fmt_ms(best_ms),
-                fmt_speedup(speedup(strict_ms, dropin_ms)),
+                esc(item["option"]),
+                esc(item["role"]),
+                esc(item.get("result") or result_summary(item["time_ms"], None, speedup_value=item["speedup"])),
                 esc(item["readout"]),
+            ]
+        )
+
+    current_hardware = f"Current run: {device_name}"
+    if current_dropin:
+        rows.append(
+            [
+                esc(current_hardware),
+                "Vectorized float default",
+                "Safe drop-in",
+                result_summary(
+                    current_dropin,
+                    current_strict,
+                    speedup_value=speedup(current_strict, current_dropin),
+                ),
+                "Recommended production default when the float input/output contract must remain unchanged.",
+            ]
+        )
+    if current_best:
+        rows.append(
+            [
+                esc(current_hardware),
+                "uint4 + L2 U8 in/out kernel" if current_best_l2 else "Compact U8 input + U8 output",
+                "Specialized kernel-only",
+                result_summary(
+                    current_best,
+                    current_strict,
+                    speedup_value=speedup(current_strict, current_best),
+                ),
+                "Fastest kernel-only row in the current measurement set; it requires the compact data contract.",
+            ]
+        )
+    if current_score:
+        rows.append(
+            [
+                esc(current_hardware),
+                esc(current_score_label),
+                "Specialized score path",
+                result_summary(
+                    current_score,
+                    current_strict,
+                    speedup_value=speedup(current_strict, current_score),
+                ),
+                "Best score-producing row in the current report; it is separate from the kernel-only producer result.",
             ]
         )
     return render_table(
         [
             "Hardware",
-            "GPUs",
-            "Toolchain",
-            "Strict baseline",
-            "Drop-in default",
-            "Best measured",
-            "Drop-in speedup",
+            "Representative option",
+            "Role",
+            "Result",
             "Readout",
         ],
         rows,
@@ -927,13 +996,15 @@ def build_html(output_dir):
         "compact_u8_xw_u8_output_consumer_with_gpu_pack_pipeline_experimental", {}
     )
     multi_title, multi_body, scaling = multi_gpu_story(hardware)
+    devices = hardware.get("nvidia_smi", {}).get("devices", [])
+    gpu_name = devices[0].get("name") if devices else summary.get("gpu", {}).get("name", "this GPU")
     bottleneck = hardware.get("classification", {}).get("bottleneck_hint")
     if bottleneck == "compute-throughput":
         profiler_readout = (
             "Nsight classifies the drop-in float path as compute-throughput "
-            "sensitive on this host, which explains why fixed-range affine math "
-            "wins materially on B300. The compact fused paths still matter "
-            "because they remove global-memory traffic and launch boundaries."
+            "sensitive on the measured GPU, which explains why fixed-range "
+            "affine math can win materially here. The compact fused paths still "
+            "matter because they remove global-memory traffic and launch boundaries."
         )
     else:
         profiler_readout = (
@@ -944,6 +1015,11 @@ def build_html(output_dir):
         )
 
     dropin_title = fmt_speedup(default.get("speedup_strict"))
+    headline = (
+        f"Up to {dropin_title} drop-in speedup for the original CUDA benchmark"
+        if default.get("speedup_strict")
+        else "CUDA kernel performance report"
+    )
 
     return f"""<!doctype html>
 <html lang="en">
@@ -1011,7 +1087,7 @@ h1 {{
 .hero-grid {{
   display: grid;
   gap: 14px;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   margin-top: 28px;
 }}
 .stat {{
@@ -1365,13 +1441,14 @@ code {{
 <header class="hero">
   <div class="wrap">
     <p class="eyebrow">CUDA Kernel Gen client report</p>
-    <h1>{esc(dropin_title)} drop-in speedup for the original CUDA benchmark</h1>
+    <h1>{esc(headline)}</h1>
     <p class="lede">Coalesced vectorization and compact data layouts for a transcendental CUDA grid benchmark, while preserving the client's float input/output contract for the recommended default.</p>
     <div class="hero-grid">
       {stat_card("Original baseline", fmt_ms(strict_ms), "Strict problem definition")}
       {stat_card("Recommended drop-in", fmt_speedup(default.get("speedup_strict")), fmt_ms(default.get("time_ms")))}
       {stat_card("Fastest kernel-only", fmt_speedup((l2_producer or compact).get("speedup_strict")), fmt_ms((l2_producer or compact).get("time_ms")))}
-      {stat_card("Fused score path", fmt_speedup((fused_score or l2_pipeline).get("speedup_strict")), fmt_ms((fused_score or l2_pipeline).get("time_ms")))}
+      {stat_card("Adjacent L2 pipeline", fmt_speedup(l2_pipeline.get("speedup_strict")), fmt_ms(l2_pipeline.get("time_ms")))}
+      {stat_card("Best score path", fmt_speedup((fused_score or l2_pipeline).get("speedup_strict")), fmt_ms((fused_score or l2_pipeline).get("time_ms")))}
     </div>
   </div>
 </header>
@@ -1381,14 +1458,14 @@ code {{
     <div>
       <h2>Executive Summary</h2>
       <p>The baseline problem processes a fixed {fmt(summary.get('dimx'), 0)} x {fmt(summary.get('dimy'), 0)} float grid with five dependent transcendental iterations per element and a 1e-3 relative tolerance check.</p>
-      <p>The recommended production default is the vectorized float kernel. It keeps the input/output contract intact and moves the runtime from {fmt_ms(strict_ms)} to {fmt_ms(default.get("time_ms"))} on this Blackwell host.</p>
-      <p>The fastest compact row combines uint4-packed U8 input/output with persisting L2 on the compact input. The adjacent L2 pipeline is slower because it times useful downstream consumer work too; use that row to judge product pipelines, not standalone kernel throughput.</p>
+      <p>The recommended production default is the vectorized float kernel. It keeps the input/output contract intact and moves the runtime from {fmt_ms(strict_ms)} to {fmt_ms(default.get("time_ms"))} on {esc(gpu_name)}.</p>
+      <p>The fastest specialized kernel combines uint4-packed U8 input/output with persisting L2 on the compact input. The adjacent L2 pipeline is reported separately because it times useful downstream consumer work too; the fused score path is the best score-producing compact-data result in this report.</p>
       <p>{esc(profiler_readout)}</p>
     </div>
     <div class="decision">
       <h2>Recommendation</h2>
-      <p><strong>Adopt the vectorized float default as the safe deliverable.</strong></p>
-      <p>Use FP16 output or compact U8 paths only as explicit ABI tracks. They are compelling when the surrounding product can store or consume compact data directly.</p>
+      <p><strong>Adopt the vectorized float kernel as the production default.</strong></p>
+      <p>Use FP16 output or compact U8 paths only when the product can adopt those data contracts. They are compelling when surrounding stages can store or consume compact data directly.</p>
     </div>
   </section>
 
@@ -1401,7 +1478,7 @@ code {{
 
   <section>
     <h2>Performance Ladder</h2>
-    <p class="muted">Client-relevant variants, sorted by speedup against the original client baseline.</p>
+    <p class="muted">Client-relevant variants, sorted by speedup against the original client baseline. L2-resident results are included when they were measured in the current report.</p>
     {performance_ladder(records)}
   </section>
 
@@ -1410,7 +1487,7 @@ code {{
     <div class="mini-grid">
       <div>
         <h3>Data movement falls as the contract narrows</h3>
-        <p class="muted">The drop-in path fixes memory access geometry. ABI-changing paths then reduce output bytes and keep only the two lanes that actually vary in this benchmark.</p>
+        <p class="muted">The drop-in path fixes memory access geometry. Data-contract-changing paths then reduce output bytes and keep only the two lanes that actually vary in this benchmark.</p>
         {traffic_ladder(records)}
       </div>
       <div>
@@ -1425,16 +1502,16 @@ code {{
 
   <section>
     <h2>Ranked Benchmark Portfolio</h2>
-    <p class="muted">Sorted by speedup vs the original client baseline. Footprint combines data moved, register pressure, and spill status so the table stays decision-oriented.</p>
+    <p class="muted">Sorted by speedup vs the original client baseline, including L2-resident rows when available. Footprint combines data moved, register pressure, and spill status so the table stays decision-oriented.</p>
     {portfolio_table(records)}
   </section>
 
   {l2_residency_section(l2_cache, strict_ms)}
 
   <section>
-    <h2>Hardware Variants Tried</h2>
-    <p class="muted">This table keeps cross-machine claims honest: L4 and RTX PRO 6000 rows are historical report/README facts, the RTX PRO 6000 two-GPU row is topology-only because no committed multi-GPU timing artifact is present, and the B300 row comes from the current generated artifacts.</p>
-    {hardware_comparison(summary, baseline, l2_cache)}
+    <h2>Hardware Key Result Comparison</h2>
+    <p class="muted">Representative rows from earlier L4 and RTX PRO 6000 runs are shown alongside the current measured system. The RTX PRO 6000 two-GPU entry is a topology note only; no multi-GPU timing is claimed.</p>
+    {hardware_comparison(summary, baseline, l2_cache, hardware)}
   </section>
 
   <section>
@@ -1472,7 +1549,24 @@ def copy_artifacts(output_dir, publish_dir):
     for name in ARTIFACTS:
         source = output_dir / name
         if source.exists():
-            shutil.copy2(source, artifact_dir / name)
+            target = artifact_dir / name
+            if name == "client_summary.md":
+                text = source.read_text()
+                published_links = (
+                    "[HTML report](../index.html) · "
+                    "[PDF report](../cuda-kernel-performance-report.pdf)"
+                )
+                lines = text.splitlines()
+                if lines and lines[0] == "# CUDA Kernel Performance Summary":
+                    if len(lines) > 2 and lines[2].startswith("[HTML report]"):
+                        lines[2] = published_links
+                    else:
+                        lines[1:1] = ["", published_links]
+                    target.write_text("\n".join(lines) + "\n")
+                else:
+                    shutil.copy2(source, target)
+            else:
+                shutil.copy2(source, target)
 
 
 def write_report(output_dir, publish_dir=None):

@@ -506,6 +506,22 @@ static __host__ __device__ __forceinline__ float affine(float s, float c0,
   return fmaf(c1, s, c0);
 }
 
+static __host__ __device__ __forceinline__ float affine_x_lane(float value) {
+  return affine(fixed_range_s_unchecked(value), 8.08435372f, 0.0109435349f);
+}
+
+static __host__ __device__ __forceinline__ float affine_w_lane(float value) {
+  return affine(fixed_range_s_unchecked(value), 7.04225693f, 0.135612134f);
+}
+
+static __host__ __device__ __forceinline__ uchar2
+transform_fixed_u8_xw_pair(uchar2 packed) {
+  float x = affine_x_lane(unpack_fixed_u8_xw(packed.x));
+  float w = affine_w_lane(unpack_fixed_u8_xw(packed.y));
+  return make_uchar2(pack_range_u8(x, OUT_X_MIN, OUT_X_MAX),
+                     pack_range_u8(w, OUT_W_MIN, OUT_W_MAX));
+}
+
 __device__ __forceinline__ unsigned long long pack_half4(float x, float y,
                                                          float z, float w) {
   __half hx_half = __float2half_rn(x);
@@ -711,10 +727,10 @@ __global__ void kernel_vector4_affine_sparse(float *__restrict__ g_data,
     float w = g_data[base + 3];
     float4 result;
 
-    result.x = affine(fixed_range_s_unchecked(x), 8.08435372f, 0.0109435349f);
-    result.y = 3.13439728f;
-    result.z = 4.68293153f;
-    result.w = affine(fixed_range_s_unchecked(w), 7.04225693f, 0.135612134f);
+    result.x = affine_x_lane(x);
+    result.y = OUT_Y_CONST;
+    result.z = OUT_Z_CONST;
+    result.w = affine_w_lane(w);
     g_data4[group] = result;
   }
 }
@@ -728,12 +744,10 @@ __global__ void kernel_vector4_affine_loaded(float4 *__restrict__ g_data4,
     float4 value = g_data4[group];
     float4 result;
 
-    result.x =
-        affine(fixed_range_s_unchecked(value.x), 8.08435372f, 0.0109435349f);
-    result.y = 3.13439728f;
-    result.z = 4.68293153f;
-    result.w =
-        affine(fixed_range_s_unchecked(value.w), 7.04225693f, 0.135612134f);
+    result.x = affine_x_lane(value.x);
+    result.y = OUT_Y_CONST;
+    result.z = OUT_Z_CONST;
+    result.w = affine_w_lane(value.w);
     g_data4[group] = result;
   }
 }
@@ -745,12 +759,10 @@ __global__ void kernel_vector4_affine_half_output_loaded(
 
   for (; group < groups; group += stride) {
     float4 value = in4[group];
-    float x =
-        affine(fixed_range_s_unchecked(value.x), 8.08435372f, 0.0109435349f);
-    float y = 3.13439728f;
-    float z = 4.68293153f;
-    float w =
-        affine(fixed_range_s_unchecked(value.w), 7.04225693f, 0.135612134f);
+    float x = affine_x_lane(value.x);
+    float y = OUT_Y_CONST;
+    float z = OUT_Z_CONST;
+    float w = affine_w_lane(value.w);
 
     int out = group << 1;
     out2[out] = __floats2half2_rn(x, y);
@@ -765,12 +777,10 @@ __global__ void kernel_vector4_affine_half_output_sparse(
 
   for (; group < groups; group += stride) {
     int base = group << 2;
-    float x =
-        affine(fixed_range_s_unchecked(in[base]), 8.08435372f, 0.0109435349f);
-    float y = 3.13439728f;
-    float z = 4.68293153f;
-    float w = affine(fixed_range_s_unchecked(in[base + 3]), 7.04225693f,
-                     0.135612134f);
+    float x = affine_x_lane(in[base]);
+    float y = OUT_Y_CONST;
+    float z = OUT_Z_CONST;
+    float w = affine_w_lane(in[base + 3]);
 
     int out = group << 1;
     out2[out] = __floats2half2_rn(x, y);
@@ -786,12 +796,10 @@ __global__ void kernel_vector4_affine_half_output_packed(
 
   for (; group < groups; group += stride) {
     float4 value = in4[group];
-    float x =
-        affine(fixed_range_s_unchecked(value.x), 8.08435372f, 0.0109435349f);
-    float y = 3.13439728f;
-    float z = 4.68293153f;
-    float w =
-        affine(fixed_range_s_unchecked(value.w), 7.04225693f, 0.135612134f);
+    float x = affine_x_lane(value.x);
+    float y = OUT_Y_CONST;
+    float z = OUT_Z_CONST;
+    float w = affine_w_lane(value.w);
 
     out64[group] = pack_half4(x, y, z, w);
   }
@@ -804,12 +812,10 @@ __global__ void kernel_compact_xw_affine_half_output(
 
   for (; group < groups; group += stride) {
     float2 value = in_xw[group];
-    float x =
-        affine(fixed_range_s_unchecked(value.x), 8.08435372f, 0.0109435349f);
-    float y = 3.13439728f;
-    float z = 4.68293153f;
-    float w =
-        affine(fixed_range_s_unchecked(value.y), 7.04225693f, 0.135612134f);
+    float x = affine_x_lane(value.x);
+    float y = OUT_Y_CONST;
+    float z = OUT_Z_CONST;
+    float w = affine_w_lane(value.y);
 
     int out = group << 1;
     out2[out] = __floats2half2_rn(x, y);
@@ -827,12 +833,10 @@ __global__ void kernel_compact_half_xw_affine_half_output(
     __half2 packed = in_xw[group];
     float x_in = __low2float(packed);
     float w_in = __high2float(packed);
-    float x = affine(fixed_range_s_unchecked(x_in), 8.08435372f,
-                     0.0109435349f);
-    float y = 3.13439728f;
-    float z = 4.68293153f;
-    float w = affine(fixed_range_s_unchecked(w_in), 7.04225693f,
-                     0.135612134f);
+    float x = affine_x_lane(x_in);
+    float y = OUT_Y_CONST;
+    float z = OUT_Z_CONST;
+    float w = affine_w_lane(w_in);
 
     int out = group << 1;
     out2[out] = __floats2half2_rn(x, y);
@@ -850,12 +854,10 @@ __global__ void kernel_compact_u16_xw_affine_half_output(
     ushort2 packed = in_xw[group];
     float x_in = unpack_fixed_u16_xw(packed.x);
     float w_in = unpack_fixed_u16_xw(packed.y);
-    float x = affine(fixed_range_s_unchecked(x_in), 8.08435372f,
-                     0.0109435349f);
-    float y = 3.13439728f;
-    float z = 4.68293153f;
-    float w = affine(fixed_range_s_unchecked(w_in), 7.04225693f,
-                     0.135612134f);
+    float x = affine_x_lane(x_in);
+    float y = OUT_Y_CONST;
+    float z = OUT_Z_CONST;
+    float w = affine_w_lane(w_in);
 
     int out = group << 1;
     out2[out] = __floats2half2_rn(x, y);
@@ -872,12 +874,10 @@ __global__ void kernel_compact_u8_xw_affine_half_output(
     uchar2 packed = in_xw[group];
     float x_in = unpack_fixed_u8_xw(packed.x);
     float w_in = unpack_fixed_u8_xw(packed.y);
-    float x = affine(fixed_range_s_unchecked(x_in), 8.08435372f,
-                     0.0109435349f);
-    float y = 3.13439728f;
-    float z = 4.68293153f;
-    float w = affine(fixed_range_s_unchecked(w_in), 7.04225693f,
-                     0.135612134f);
+    float x = affine_x_lane(x_in);
+    float y = OUT_Y_CONST;
+    float z = OUT_Z_CONST;
+    float w = affine_w_lane(w_in);
 
     int out = group << 1;
     out2[out] = __floats2half2_rn(x, y);
@@ -895,12 +895,10 @@ __global__ void kernel_compact_u4_xw_affine_half_output(
     unsigned char packed = in_xw[group];
     float x_in = unpack_fixed_u4_xw(packed & 0x0f);
     float w_in = unpack_fixed_u4_xw(packed >> 4);
-    float x = affine(fixed_range_s_unchecked(x_in), 8.08435372f,
-                     0.0109435349f);
-    float y = 3.13439728f;
-    float z = 4.68293153f;
-    float w = affine(fixed_range_s_unchecked(w_in), 7.04225693f,
-                     0.135612134f);
+    float x = affine_x_lane(x_in);
+    float y = OUT_Y_CONST;
+    float z = OUT_Z_CONST;
+    float w = affine_w_lane(w_in);
 
     int out = group << 1;
     out2[out] = __floats2half2_rn(x, y);
@@ -916,14 +914,7 @@ __global__ void kernel_compact_u8_xw_affine_u8_xw_output(
 
   for (; group < groups; group += stride) {
     uchar2 packed = in_xw[group];
-    float x_in = unpack_fixed_u8_xw(packed.x);
-    float w_in = unpack_fixed_u8_xw(packed.y);
-    float x = affine(fixed_range_s_unchecked(x_in), 8.08435372f,
-                     0.0109435349f);
-    float w = affine(fixed_range_s_unchecked(w_in), 7.04225693f,
-                     0.135612134f);
-    out_xw[group] = make_uchar2(pack_range_u8(x, OUT_X_MIN, OUT_X_MAX),
-                                pack_range_u8(w, OUT_W_MIN, OUT_W_MAX));
+    out_xw[group] = transform_fixed_u8_xw_pair(packed);
   }
 }
 
@@ -1016,12 +1007,10 @@ __global__ void kernel_vector4_affine_bfloat16_output_loaded(
 
   for (; group < groups; group += stride) {
     float4 value = in4[group];
-    float x =
-        affine(fixed_range_s_unchecked(value.x), 8.08435372f, 0.0109435349f);
-    float y = 3.13439728f;
-    float z = 4.68293153f;
-    float w =
-        affine(fixed_range_s_unchecked(value.w), 7.04225693f, 0.135612134f);
+    float x = affine_x_lane(value.x);
+    float y = OUT_Y_CONST;
+    float z = OUT_Z_CONST;
+    float w = affine_w_lane(value.w);
 
     int out = group << 1;
     out2[out] = __floats2bfloat162_rn(x, y);
@@ -3315,26 +3304,14 @@ static int compact_grid(int groups) {
   return grid > min_grid ? min_grid : grid;
 }
 
-static __device__ __forceinline__ uchar2 transform_compact_u8_pair(
-    uchar2 packed) {
-  float x_in = unpack_fixed_u8_xw(packed.x);
-  float w_in = unpack_fixed_u8_xw(packed.y);
-  float x = affine(fixed_range_s_unchecked(x_in), 8.08435372f,
-                   0.0109435349f);
-  float w = affine(fixed_range_s_unchecked(w_in), 7.04225693f,
-                   0.135612134f);
-  return make_uchar2(pack_range_u8(x, OUT_X_MIN, OUT_X_MAX),
-                     pack_range_u8(w, OUT_W_MIN, OUT_W_MAX));
-}
-
 static __device__ __forceinline__ unsigned int transform_compact_u8_word(
     unsigned int word) {
   uchar2 in0 = make_uchar2((unsigned char)(word & 0xffu),
                            (unsigned char)((word >> 8) & 0xffu));
   uchar2 in1 = make_uchar2((unsigned char)((word >> 16) & 0xffu),
                            (unsigned char)((word >> 24) & 0xffu));
-  uchar2 out0 = transform_compact_u8_pair(in0);
-  uchar2 out1 = transform_compact_u8_pair(in1);
+  uchar2 out0 = transform_fixed_u8_xw_pair(in0);
+  uchar2 out1 = transform_fixed_u8_xw_pair(in1);
   return (unsigned int)out0.x | ((unsigned int)out0.y << 8) |
          ((unsigned int)out1.x << 16) | ((unsigned int)out1.y << 24);
 }
@@ -3343,10 +3320,8 @@ static __device__ __forceinline__ float score_transformed_compact_u8_pair(
     uchar2 packed) {
   float x_in = unpack_fixed_u8_xw(packed.x);
   float w_in = unpack_fixed_u8_xw(packed.y);
-  float x = affine(fixed_range_s_unchecked(x_in), 8.08435372f,
-                   0.0109435349f);
-  float w = affine(fixed_range_s_unchecked(w_in), 7.04225693f,
-                   0.135612134f);
+  float x = affine_x_lane(x_in);
+  float w = affine_w_lane(w_in);
   return downstream_score(x, OUT_Y_CONST, OUT_Z_CONST, w);
 }
 
@@ -4091,15 +4066,8 @@ int main() {
                                          pack_fixed_u8_xw(h_initial[base + 3]));
     h_compact_u4_xw[group] =
         pack_fixed_u4_pair(h_initial[base], h_initial[base + 3]);
-    float x_in = unpack_fixed_u8_xw(h_compact_u8_xw[group].x);
-    float w_in = unpack_fixed_u8_xw(h_compact_u8_xw[group].y);
-    float x_out =
-        affine(fixed_range_s_unchecked(x_in), 8.08435372f, 0.0109435349f);
-    float w_out =
-        affine(fixed_range_s_unchecked(w_in), 7.04225693f, 0.135612134f);
     h_compact_u8_output[group] =
-        make_uchar2(pack_range_u8(x_out, OUT_X_MIN, OUT_X_MAX),
-                    pack_range_u8(w_out, OUT_W_MIN, OUT_W_MAX));
+        transform_fixed_u8_xw_pair(h_compact_u8_xw[group]);
   }
 
   const KernelVariant variants[] = {

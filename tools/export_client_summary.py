@@ -304,6 +304,10 @@ def recommendation_notes(hardware):
     return result or ["No hardware classification notes were captured."]
 
 
+def report_link_line(html_path="index.html", pdf_path="cuda-kernel-performance-report.pdf"):
+    return f"[HTML report]({html_path}) · [PDF report]({pdf_path})"
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", default="reports/latest")
@@ -323,6 +327,8 @@ def main():
 
     sections = [
         "# CUDA Kernel Performance Summary",
+        "",
+        report_link_line(),
         "",
         "## Hardware",
         "",

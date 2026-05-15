@@ -325,6 +325,42 @@ def result_summary(ms, strict_ms, label=None, speedup_value=None):
     return result
 
 
+def compact_result(record):
+    if not record:
+        return "n/a"
+    return result_summary(
+        record.get("time_ms"),
+        None,
+        speedup_value=record.get("speedup_strict"),
+    )
+
+
+def best_observed_l2_result(current_record, current_hardware):
+    candidates = []
+    for item in HARDWARE_COMPARISON_ROWS:
+        if item.get("role") == "Specialized kernel-only" and item.get("speedup"):
+            candidates.append(
+                {
+                    "hardware": item["hardware"],
+                    "option": item["option"],
+                    "time_ms": item.get("time_ms"),
+                    "speedup": item.get("speedup"),
+                }
+            )
+    if current_record.get("speedup_strict"):
+        candidates.append(
+            {
+                "hardware": current_hardware,
+                "option": current_record.get("label"),
+                "time_ms": current_record.get("time_ms"),
+                "speedup": current_record.get("speedup_strict"),
+            }
+        )
+    if not candidates:
+        return {}
+    return max(candidates, key=lambda item: item["speedup"])
+
+
 def variant_label(name):
     copy = VARIANT_COPY.get(name)
     if copy:
@@ -802,7 +838,7 @@ def l2_residency_section(l2_cache, strict_ms):
       <p>This path is aimed at latency-sensitive customers who can own the compact data contract, producer/consumer coupling, and maintenance burden. It is not the safe library default.</p>
       <p class="muted">There are two useful combinations. First, the current best kernel-only shape uses uint4 loads/stores to process eight compact groups per thread, then keeps compact U8 input in persisting L2; that measured {fmt_ms(producer.get('median_ms'))}, or {fmt_speedup(producer_strict_gain)} against the original client baseline. Second, the uint4 compact producer can write U8 x/w output and keep that output resident for an adjacent compact consumer; that producer-plus-consumer path measured {fmt_ms(total.get('median_ms'))}, or {fmt_speedup(strict_gain)}.</p>
       <p class="muted">The kernel-only L2 result is the fastest measured row on this system, but it depends on compact input reuse and a working set that fits the persisting-L2 budget. On B200-class systems, very high HBM3e bandwidth narrows the cache advantage, so this tactic should be remeasured rather than assumed.</p>
-      <p class="muted">The L2 path does not make the workload compute-bound. It reduces read pressure, but the compact consumer still shows a memory-path profile because it writes the score stream and moves predictable global-memory transactions.</p>
+      <p class="muted">This is an HBM-light path rather than an HBM-free one. It removes avoidable round trips and reduces read pressure, but the compact consumer still shows a memory-path profile because it writes the score stream and moves predictable global-memory transactions.</p>
     </div>
     {fact_grid([
         ["Compact output footprint", fmt_mib(config.get("compact_output_bytes"))],
@@ -973,6 +1009,53 @@ def source_package_rows(base_dir):
     ]
 
 
+def adoption_path_table(default, compact, l2_producer, fused_score, fastest_observed):
+    rows = []
+    if default:
+        rows.append(
+            [
+                "Adopt now",
+                compact_result(default),
+                "Same float input/output contract. This is the production recommendation when the surrounding application must stay unchanged.",
+            ]
+        )
+    if compact:
+        rows.append(
+            [
+                "Narrow the data contract",
+                compact_result(compact),
+                "Use when adjacent stages can produce or consume compact U8 values directly instead of expanding every lane back to floats.",
+            ]
+        )
+    if l2_producer:
+        observed = "n/a"
+        if fastest_observed:
+            observed = (
+                result_summary(
+                    fastest_observed.get("time_ms"),
+                    None,
+                    speedup_value=fastest_observed.get("speedup"),
+                )
+                + f'<br><span class="cell-note">{esc(fastest_observed.get("hardware", ""))}</span>'
+            )
+        rows.append(
+            [
+                "Use compact L2 residency",
+                observed,
+                "Best for latency-sensitive producer/consumer systems that can keep compact working data local. It is HBM-light, not HBM-free, and should be remeasured on each target SKU.",
+            ]
+        )
+    if fused_score:
+        rows.append(
+            [
+                "Fuse the downstream score",
+                compact_result(fused_score),
+                "Use when the next stage needs the score stream, not the intermediate compact U8 output buffer.",
+            ]
+        )
+    return render_table(["Path", "Representative result", "Customer action"], rows, "adoption")
+
+
 def multi_gpu_story(hardware):
     smi = hardware.get("nvidia_smi", {})
     topology = hardware.get("topology", {})
@@ -1031,6 +1114,9 @@ def build_html(output_dir, link_base_dir=None):
     multi_title, multi_body, scaling = multi_gpu_story(hardware)
     devices = hardware.get("nvidia_smi", {}).get("devices", [])
     gpu_name = devices[0].get("name") if devices else summary.get("gpu", {}).get("name", "this GPU")
+    gpu_short = "B300" if "B300" in gpu_name else "this GPU"
+    best_current_l2 = l2_producer or compact
+    fastest_observed = best_observed_l2_result(best_current_l2, gpu_name)
     bottleneck = hardware.get("classification", {}).get("bottleneck_hint")
     if bottleneck == "compute-throughput":
         profiler_readout = (
@@ -1048,8 +1134,9 @@ def build_html(output_dir, link_base_dir=None):
         )
 
     dropin_title = fmt_speedup(default.get("speedup_strict"))
+    observed_title = fmt_speedup(fastest_observed.get("speedup"), 0)
     headline = (
-        f"Up to {dropin_title} drop-in speedup for the original CUDA benchmark"
+        f"{dropin_title} drop-in on {gpu_short}; up to {observed_title} with compact L2 residency"
         if default.get("speedup_strict")
         else "CUDA kernel performance report"
     )
@@ -1415,6 +1502,18 @@ td {{ font-size: 0.93rem; }}
   padding: 4px 8px;
   white-space: nowrap;
 }}
+.adoption td:nth-child(2) {{
+  font-weight: 800;
+  white-space: nowrap;
+}}
+.cell-note {{
+  color: var(--muted);
+  display: inline-block;
+  font-size: 0.82rem;
+  font-weight: 500;
+  margin-top: 3px;
+  white-space: normal;
+}}
 .two-col {{
   display: grid;
   gap: 18px;
@@ -1627,12 +1726,12 @@ code {{
   <div class="wrap">
     <p class="eyebrow">CUDA Kernel Gen client report</p>
     <h1>{esc(headline)}</h1>
-    <p class="lede">Coalesced vectorization and compact data layouts for a transcendental CUDA grid benchmark, while preserving the client's float input/output contract for the recommended default.</p>
+    <p class="lede">The client-supplied benchmark isolates a real performance issue: memory geometry, data movement, and math pipeline choice. The report keeps the safe drop-in answer separate from compact-data L2 residency paths.</p>
     <div class="hero-grid">
       {stat_card("Original baseline", fmt_ms(strict_ms), "Strict problem definition")}
       {stat_card("Recommended drop-in", fmt_speedup(default.get("speedup_strict")), fmt_ms(default.get("time_ms")))}
-      {stat_card("Fastest kernel-only", fmt_speedup((l2_producer or compact).get("speedup_strict")), fmt_ms((l2_producer or compact).get("time_ms")))}
-      {stat_card("Adjacent L2 pipeline", fmt_speedup(l2_pipeline.get("speedup_strict")), fmt_ms(l2_pipeline.get("time_ms")))}
+      {stat_card("Current compact L2", fmt_speedup(best_current_l2.get("speedup_strict")), fmt_ms(best_current_l2.get("time_ms")))}
+      {stat_card("Fastest observed L2", fmt_speedup(fastest_observed.get("speedup")), f"{fmt_ms(fastest_observed.get('time_ms'))} on {fastest_observed.get('hardware', 'recorded hardware')}")}
       {stat_card("Best score path", fmt_speedup((fused_score or l2_pipeline).get("speedup_strict")), fmt_ms((fused_score or l2_pipeline).get("time_ms")))}
     </div>
   </div>
@@ -1642,16 +1741,22 @@ code {{
   <section class="intro">
     <div>
       <h2>Executive Summary</h2>
-      <p>The baseline problem processes a fixed {fmt(summary.get('dimx'), 0)} x {fmt(summary.get('dimy'), 0)} float grid with five dependent transcendental iterations per element and a 1e-3 relative tolerance check.</p>
+      <p>The supplied problem is a strong diagnostic: it processes a fixed {fmt(summary.get('dimx'), 0)} x {fmt(summary.get('dimy'), 0)} float grid with five dependent transcendental iterations per element and a 1e-3 relative tolerance check.</p>
       <p>The recommended production default is the vectorized float kernel. It keeps the input/output contract intact and moves the runtime from {fmt_ms(strict_ms)} to {fmt_ms(default.get("time_ms"))} on {esc(gpu_name)}.</p>
-      <p>The fastest specialized kernel combines uint4-packed U8 input/output with persisting L2 on the compact input. The adjacent L2 pipeline is reported separately because it times useful downstream consumer work too; the fused score path is the best score-producing compact-data result in this report.</p>
+      <p>The compact L2 path is the strategic upside. On this run it reaches {fmt_ms(best_current_l2.get("time_ms"))}, or {fmt_speedup(best_current_l2.get("speedup_strict"))}; the fastest observed compact L2 row across the report set is {result_summary(fastest_observed.get("time_ms"), None, speedup_value=fastest_observed.get("speedup"))} on {esc(fastest_observed.get("hardware", "recorded hardware"))}. These rows are specialized contract results, not drop-in replacements.</p>
       <p>{esc(profiler_readout)}</p>
     </div>
     <div class="decision">
       <h2>Recommendation</h2>
       <p><strong>Adopt the vectorized float kernel as the production default.</strong></p>
-      <p>Use FP16 output or compact U8 paths only when the product can adopt those data contracts. They are compelling when surrounding stages can store or consume compact data directly.</p>
+      <p>Treat compact U8 and L2-resident paths as second-phase options for systems that own the producer/consumer interface. They are compelling when surrounding stages can store or consume compact data directly and avoid avoidable HBM round trips.</p>
     </div>
+  </section>
+
+  <section>
+    <h2>Adoption Path</h2>
+    <p class="muted">The benchmark results separate the immediate production answer from higher-upside paths that require more control over the surrounding dataflow.</p>
+    {adoption_path_table(default, compact, l2_producer, fused_score, fastest_observed)}
   </section>
 
   <section>

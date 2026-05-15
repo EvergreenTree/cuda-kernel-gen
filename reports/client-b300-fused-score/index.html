@@ -359,6 +359,18 @@ td { font-size: 0.93rem; }
   padding: 4px 8px;
   white-space: nowrap;
 }
+.adoption td:nth-child(2) {
+  font-weight: 800;
+  white-space: nowrap;
+}
+.cell-note {
+  color: var(--muted);
+  display: inline-block;
+  font-size: 0.82rem;
+  font-weight: 500;
+  margin-top: 3px;
+  white-space: normal;
+}
 .two-col {
   display: grid;
   gap: 18px;
@@ -570,13 +582,13 @@ code {
 <header class="hero">
   <div class="wrap">
     <p class="eyebrow">CUDA Kernel Gen client report</p>
-    <h1>Up to 80.6x drop-in speedup for the original CUDA benchmark</h1>
-    <p class="lede">Coalesced vectorization and compact data layouts for a transcendental CUDA grid benchmark, while preserving the client's float input/output contract for the recommended default.</p>
+    <h1>80.6x drop-in on B300; up to 775x with compact L2 residency</h1>
+    <p class="lede">The client-supplied benchmark isolates a real performance issue: memory geometry, data movement, and math pipeline choice. The report keeps the safe drop-in answer separate from compact-data L2 residency paths.</p>
     <div class="hero-grid">
       <div class="stat "><p>Original baseline</p><strong>14.8900 ms</strong><span>Strict problem definition</span></div>
       <div class="stat "><p>Recommended drop-in</p><strong>80.6x</strong><span>0.1848 ms</span></div>
-      <div class="stat "><p>Fastest kernel-only</p><strong>638.7x</strong><span>0.0233 ms</span></div>
-      <div class="stat "><p>Adjacent L2 pipeline</p><strong>325.0x</strong><span>0.0458 ms</span></div>
+      <div class="stat "><p>Current compact L2</p><strong>638.7x</strong><span>0.0233 ms</span></div>
+      <div class="stat "><p>Fastest observed L2</p><strong>774.9x</strong><span>0.0169 ms on RTX PRO 6000 Blackwell, 1 GPU</span></div>
       <div class="stat "><p>Best score path</p><strong>595.9x</strong><span>0.0250 ms</span></div>
     </div>
   </div>
@@ -586,16 +598,22 @@ code {
   <section class="intro">
     <div>
       <h2>Executive Summary</h2>
-      <p>The baseline problem processes a fixed 8192 x 8192 float grid with five dependent transcendental iterations per element and a 1e-3 relative tolerance check.</p>
+      <p>The supplied problem is a strong diagnostic: it processes a fixed 8192 x 8192 float grid with five dependent transcendental iterations per element and a 1e-3 relative tolerance check.</p>
       <p>The recommended production default is the vectorized float kernel. It keeps the input/output contract intact and moves the runtime from 14.8900 ms to 0.1848 ms on NVIDIA B300 SXM6 AC.</p>
-      <p>The fastest specialized kernel combines uint4-packed U8 input/output with persisting L2 on the compact input. The adjacent L2 pipeline is reported separately because it times useful downstream consumer work too; the fused score path is the best score-producing compact-data result in this report.</p>
+      <p>The compact L2 path is the strategic upside. On this run it reaches 0.0233 ms, or 638.7x; the fastest observed compact L2 row across the report set is 0.0169 ms / 774.9x on RTX PRO 6000 Blackwell, 1 GPU. These rows are specialized contract results, not drop-in replacements.</p>
       <p>Nsight classifies the drop-in float path as compute-throughput sensitive on the measured GPU, which explains why fixed-range affine math can win materially here. The compact fused paths still matter because they remove global-memory traffic and launch boundaries.</p>
     </div>
     <div class="decision">
       <h2>Recommendation</h2>
       <p><strong>Adopt the vectorized float kernel as the production default.</strong></p>
-      <p>Use FP16 output or compact U8 paths only when the product can adopt those data contracts. They are compelling when surrounding stages can store or consume compact data directly.</p>
+      <p>Treat compact U8 and L2-resident paths as second-phase options for systems that own the producer/consumer interface. They are compelling when surrounding stages can store or consume compact data directly and avoid avoidable HBM round trips.</p>
     </div>
+  </section>
+
+  <section>
+    <h2>Adoption Path</h2>
+    <p class="muted">The benchmark results separate the immediate production answer from higher-upside paths that require more control over the surrounding dataflow.</p>
+    <div class="table-wrap adoption"><table><thead><tr><th>Path</th><th>Representative result</th><th>Customer action</th></tr></thead><tbody><tr><td data-label="Path">Adopt now</td><td data-label="Representative result">0.185 ms / 80.6x</td><td data-label="Customer action">Same float input/output contract. This is the production recommendation when the surrounding application must stay unchanged.</td></tr><tr><td data-label="Path">Narrow the data contract</td><td data-label="Representative result">0.0321 ms / 463.9x</td><td data-label="Customer action">Use when adjacent stages can produce or consume compact U8 values directly instead of expanding every lane back to floats.</td></tr><tr><td data-label="Path">Use compact L2 residency</td><td data-label="Representative result">0.0169 ms / 774.9x<br><span class="cell-note">RTX PRO 6000 Blackwell, 1 GPU</span></td><td data-label="Customer action">Best for latency-sensitive producer/consumer systems that can keep compact working data local. It is HBM-light, not HBM-free, and should be remeasured on each target SKU.</td></tr><tr><td data-label="Path">Fuse the downstream score</td><td data-label="Representative result">0.0250 ms / 595.9x</td><td data-label="Customer action">Use when the next stage needs the score stream, not the intermediate compact U8 output buffer.</td></tr></tbody></table></div>
   </section>
 
   <section>
@@ -951,7 +969,7 @@ code {
       <p>This path is aimed at latency-sensitive customers who can own the compact data contract, producer/consumer coupling, and maintenance burden. It is not the safe library default.</p>
       <p class="muted">There are two useful combinations. First, the current best kernel-only shape uses uint4 loads/stores to process eight compact groups per thread, then keeps compact U8 input in persisting L2; that measured 0.0233 ms, or 638.7x against the original client baseline. Second, the uint4 compact producer can write U8 x/w output and keep that output resident for an adjacent compact consumer; that producer-plus-consumer path measured 0.0458 ms, or 325.0x.</p>
       <p class="muted">The kernel-only L2 result is the fastest measured row on this system, but it depends on compact input reuse and a working set that fits the persisting-L2 budget. On B200-class systems, very high HBM3e bandwidth narrows the cache advantage, so this tactic should be remeasured rather than assumed.</p>
-      <p class="muted">The L2 path does not make the workload compute-bound. It reduces read pressure, but the compact consumer still shows a memory-path profile because it writes the score stream and moves predictable global-memory transactions.</p>
+      <p class="muted">This is an HBM-light path rather than an HBM-free one. It removes avoidable round trips and reduces read pressure, but the compact consumer still shows a memory-path profile because it writes the score stream and moves predictable global-memory transactions.</p>
     </div>
     <div class="fact-grid"><div class="fact"><span>Compact output footprint</span><strong>32 MiB</strong></div><div class="fact"><span>Measured L2 cache</span><strong>126 MiB</strong></div><div class="fact"><span>Persisting-L2 budget</span><strong>79 MiB</strong></div><div class="fact"><span>Kernel-only L2 result</span><strong>0.0233 ms</strong></div><div class="fact"><span>L2 lift on best producer</span><strong>1.01x</strong></div><div class="fact"><span>uint4 producer lift</span><strong>1.18x</strong></div><div class="fact"><span>Scalar L2 vs thrash</span><strong>1.55x</strong></div><div class="fact"><span>Warm vs cold consumer</span><strong>1.3x</strong></div><div class="fact"><span>Persisting total lift</span><strong>1.13x</strong></div><div class="fact"><span>uint4 pipeline lift</span><strong>1.36x</strong></div><div class="fact"><span>Fused score result</span><strong>0.0250 ms</strong></div><div class="fact"><span>Fused vs best adjacent</span><strong>1.83x</strong></div><div class="fact"><span>Fused vs strict baseline</span><strong>595.9x</strong></div></div>
     <h3 class="section-subhead">Measured latency path</h3>

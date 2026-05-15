@@ -213,6 +213,25 @@ def stat_card(label, value, note="", class_name=""):
     )
 
 
+def metric_card(label, value, note=""):
+    return (
+        '<div class="metric-card">'
+        f'<p>{esc(label)}</p><strong>{esc(value)}</strong><span>{esc(note)}</span>'
+        "</div>"
+    )
+
+
+def fact_grid(rows):
+    items = []
+    for label, value in rows:
+        items.append(
+            '<div class="fact">'
+            f'<span>{esc(label)}</span><strong>{value}</strong>'
+            "</div>"
+        )
+    return '<div class="fact-grid">' + "".join(items) + "</div>"
+
+
 def variant_records(summary, baseline, space):
     strict_ms = baseline.get("time_ms")
     ptxas = space.get("ptxas", {}).get("variants", {})
@@ -400,16 +419,16 @@ def profiler_panel(space):
     memory = ncu.get("memory_details", {}).get("metrics", {})
     l1_load_sectors = memory.get("l1_global_load_sectors")
     cards = [
-        ("Bandwidth use", f"{fmt(metrics.get('dram_throughput_pct'))}%", "Near peak memory use"),
-        ("Compute use", f"{fmt(metrics.get('sm_throughput_pct'))}%", "Arithmetic is not the wall"),
+        ("Memory bandwidth", f"{fmt(metrics.get('dram_throughput_pct'))}%", "of sustained DRAM throughput"),
+        ("Compute utilization", f"{fmt(metrics.get('sm_throughput_pct'))}%", "arithmetic headroom remains"),
         ("Occupancy", f"{fmt(metrics.get('achieved_occupancy_pct'))}%", "Healthy scheduling"),
         (
-            "Access pattern",
+            "Memory access",
             "Coalesced",
             f"{fmt(l1_load_sectors / 1_000_000, 1)}M memory chunks" if l1_load_sectors else "Vectorized memory access",
         ),
     ]
-    return "".join(stat_card(label, value, note, "flat") for label, value, note in cards)
+    return "".join(metric_card(label, value, note) for label, value, note in cards)
 
 
 def hardware_summary(summary, hardware):
@@ -524,17 +543,17 @@ main.wrap {{ padding-bottom: 52px; }}
   text-transform: uppercase;
 }}
 h1 {{
-  font-size: clamp(2.2rem, 5vw, 4.8rem);
+  font-size: clamp(2.45rem, 6vw, 5.2rem);
   letter-spacing: 0;
   line-height: 0.98;
   margin: 0;
-  max-width: 980px;
+  max-width: 940px;
 }}
 .lede {{
   color: #dbe7df;
   font-size: clamp(1rem, 2vw, 1.22rem);
   margin: 18px 0 0;
-  max-width: 830px;
+  max-width: 900px;
 }}
 .hero-grid {{
   display: grid;
@@ -685,7 +704,7 @@ p {{ margin: 0 0 12px; }}
 .mini-grid {{
   display: grid;
   gap: 18px;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
 }}
 .mini-row {{
   align-items: center;
@@ -710,10 +729,33 @@ p {{ margin: 0 0 12px; }}
 .profiler-grid {{
   display: grid;
   gap: 12px;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }}
-.stat.flat {{
+.metric-card {{
   background: #fafcf9;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  min-width: 0;
+  padding: 14px;
+}}
+.metric-card p {{
+  color: #4d5b61;
+  font-size: 0.76rem;
+  font-weight: 850;
+  margin: 0;
+  text-transform: uppercase;
+}}
+.metric-card strong {{
+  display: block;
+  font-size: clamp(1.45rem, 3vw, 2.1rem);
+  line-height: 1.05;
+  margin: 8px 0 4px;
+  overflow-wrap: normal;
+}}
+.metric-card span {{
+  color: var(--muted);
+  display: block;
+  font-size: 0.86rem;
 }}
 .table-wrap {{
   overflow-x: auto;
@@ -771,7 +813,32 @@ td {{ font-size: 0.93rem; }}
 .two-col {{
   display: grid;
   gap: 18px;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.9fr);
+}}
+.fact-grid {{
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}}
+.fact {{
+  background: #fafcf9;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 13px 14px;
+}}
+.fact span {{
+  color: var(--muted);
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}}
+.fact strong {{
+  color: var(--ink);
+  display: block;
+  font-size: 1.02rem;
+  margin-top: 5px;
+  overflow-wrap: anywhere;
 }}
 code {{
   background: #edf2f3;
@@ -779,13 +846,13 @@ code {{
   padding: 1px 4px;
 }}
 @media (max-width: 980px) {{
-  .hero-grid, .option-grid, .profiler-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+  .hero-grid, .option-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
   .intro, .mini-grid, .two-col {{ grid-template-columns: 1fr; }}
 }}
 @media (max-width: 680px) {{
   .wrap {{ padding: 0 16px; }}
   .hero {{ padding: 34px 0 28px; }}
-  .hero-grid, .option-grid, .profiler-grid {{ grid-template-columns: 1fr; }}
+  .hero-grid, .option-grid, .profiler-grid, .fact-grid {{ grid-template-columns: 1fr; }}
   section {{ padding: 18px; }}
   .ladder-row, .mini-row {{
     align-items: start;
@@ -801,13 +868,13 @@ code {{
 <header class="hero">
   <div class="wrap">
     <p class="eyebrow">CUDA Kernel Gen client report</p>
-    <h1>Coalesced Vectorization and Compact Data Layouts for a Transcendental CUDA Grid Benchmark</h1>
-    <p class="lede">A 42x drop-in speedup over the original CUDA benchmark while preserving float input/output semantics; compact ABI paths show the upside when storage and downstream consumption can change.</p>
+    <h1>42x drop-in speedup for the original CUDA benchmark</h1>
+    <p class="lede">Coalesced vectorization and compact data layouts for a transcendental CUDA grid benchmark, while preserving the client's float input/output contract for the recommended default.</p>
     <div class="hero-grid">
       {stat_card("Original baseline", fmt_ms(strict_ms), "Strict problem definition")}
       {stat_card("Recommended drop-in", fmt_speedup(default.get("speedup_strict")), fmt_ms(default.get("time_ms")))}
       {stat_card("Best compact kernel", fmt_speedup(compact.get("speedup_strict")), "ABI-changing")}
-      {stat_card("Profiler takeaway", "Memory near peak", "Next gains reduce data moved")}
+      {stat_card("Profiler takeaway", "91.6%", "memory bandwidth in use")}
     </div>
   </div>
 </header>
@@ -873,7 +940,7 @@ code {{
         <p class="muted">The current 8192 x 8192 harness fits on one GPU with headroom, so the next multi-GPU benchmark should be a row-sharded throughput test, not a replacement for the single-GPU score above.</p>
       </div>
       <div>
-        {render_table(["Item", "Value"], [
+        {fact_grid([
             ["One-GPU harness memory", f"{fmt(scaling.get('single_gpu_harness_mib'))} MiB"],
             ["Partitioned harness fits", "yes" if scaling.get("fits_partitioned_harness_with_headroom") else "no"],
             ["GPU-to-GPU path", esc(", ".join(hardware.get("topology", {}).get("paths", [])) or "unknown")],

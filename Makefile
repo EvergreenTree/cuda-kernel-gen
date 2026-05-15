@@ -26,6 +26,7 @@ LAYOUT_FLAGS ?= -DENABLE_LAYOUT_SETUP_EXPERIMENT=1
 GRAPH_FLAGS ?= -DENABLE_CUDA_GRAPH_EXPERIMENT=1 -DDIMX=64 -DDIMY=64 -DNREPS=5000
 ERROR_FLAGS ?= -DENABLE_ERROR_STATS=1 -DENABLE_BF16_OUTPUT_EXPERIMENT=1 -DENABLE_LAYOUT_SETUP_EXPERIMENT=1
 MULTI_GPU_FLAGS ?= -DENABLE_MULTI_GPU_ROW_SHARD=1
+L2_FLAGS ?= -DENABLE_L2_EXPERIMENT=1
 FATBIN_FLAGS := \
 	-gencode arch=compute_89,code=sm_89 \
 	-gencode arch=compute_90,code=sm_90 \
@@ -33,7 +34,7 @@ FATBIN_FLAGS := \
 	-gencode arch=compute_120,code=sm_120 \
 	-gencode arch=compute_120,code=compute_120
 
-.PHONY: all check baseline-check specialized-check bf16-experiment layout-experiment graph-experiment pipeline-report error-report launch-sweep multi-gpu-check multi-gpu-report fatbin-check sanitize bench baseline-report profile-time profile-space hardware-report profile report client-summary client-report publish-report profile-quick fit-poly clean
+.PHONY: all check baseline-check specialized-check bf16-experiment layout-experiment graph-experiment pipeline-report error-report l2-report launch-sweep multi-gpu-check multi-gpu-report fatbin-check sanitize bench baseline-report profile-time profile-space hardware-report profile report client-summary client-report publish-report profile-quick fit-poly clean
 
 all: optimized.x
 
@@ -54,6 +55,9 @@ graph.x: $(OPT_SRC)
 
 error.x: $(OPT_SRC)
 	$(NVCC) $(COMMON_FLAGS) $(ARCH_FLAGS) $(FAST_FLAGS) $(ERROR_FLAGS) $(TUNE_FLAGS) $< -o $@
+
+l2.x: $(OPT_SRC)
+	$(NVCC) $(COMMON_FLAGS) $(ARCH_FLAGS) $(FAST_FLAGS) $(L2_FLAGS) $(TUNE_FLAGS) $< -o $@
 
 baseline.x: $(PROBLEM_SRC)
 	$(NVCC) $(COMMON_FLAGS) $< -o $@
@@ -87,6 +91,9 @@ pipeline-report:
 
 error-report:
 	$(PYTHON) tools/error_report.py --build --runs $(BENCH_RUNS) --nreps $(BENCH_NREPS) --dimx $(PROFILE_DIM) --dimy $(PROFILE_DIM) --output-dir $(REPORT_DIR)
+
+l2-report:
+	$(PYTHON) tools/l2_report.py --build --runs $(BENCH_RUNS) --nreps $(BENCH_NREPS) --dimx $(PROFILE_DIM) --dimy $(PROFILE_DIM) --output-dir $(REPORT_DIR)
 
 launch-sweep:
 	$(PYTHON) tools/launch_sweep.py --runs $(BENCH_RUNS) --nreps $(BENCH_NREPS) --dimx $(PROFILE_DIM) --dimy $(PROFILE_DIM) --output-dir $(REPORT_DIR)

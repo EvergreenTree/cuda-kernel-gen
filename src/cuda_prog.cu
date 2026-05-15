@@ -55,8 +55,16 @@
 #define ENABLE_MULTI_GPU_ROW_SHARD 0
 #endif
 
+#ifndef ENABLE_L2_EXPERIMENT
+#define ENABLE_L2_EXPERIMENT 0
+#endif
+
 #ifndef MAX_MULTI_GPU_DEVICES
 #define MAX_MULTI_GPU_DEVICES 16
+#endif
+
+#ifndef L2_THRASH_BYTES
+#define L2_THRASH_BYTES (256 * 1024 * 1024)
 #endif
 
 #ifndef NREPS
@@ -3264,6 +3272,327 @@ int main() {
   CUDA_CHECK(cudaDeviceReset());
 
   return single_ok && shard_ok && gather_ok ? EXIT_SUCCESS : EXIT_FAILURE;
+}
+
+#elif ENABLE_L2_EXPERIMENT
+
+__global__ void kernel_l2_thrash(uint4 *__restrict__ data, int words) {
+  int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  int stride = blockDim.x * gridDim.x;
+  for (; idx < words; idx += stride) {
+    uint4 value = data[idx];
+    value.x += (unsigned int)idx + 1u;
+    value.y ^= value.x;
+    value.z += value.y;
+    value.w ^= value.z;
+    data[idx] = value;
+  }
+}
+
+struct L2Timing {
+  float ms;
+  bool correct;
+  bool persisting_enabled;
+};
+
+static void fill_l2_inputs(float *h_initial, uchar2 *h_xw, int total) {
+  srand(1234);
+  for (int i = 0; i < total; i++) {
+    h_initial[i] = 1.0f + 0.01f * (float)rand() / (float)RAND_MAX;
+  }
+  int groups = total / 4;
+  for (int group = 0; group < groups; ++group) {
+    int base = group << 2;
+    h_xw[group] = make_uchar2(pack_fixed_u8_xw(h_initial[base]),
+                              pack_fixed_u8_xw(h_initial[base + 3]));
+  }
+}
+
+static int compact_grid(int groups) {
+  int block = THREADS_PER_BLOCK;
+  int grid = get_sm_count() * BLOCKS_PER_SM;
+  int min_grid = div_up(groups, block);
+  return grid > min_grid ? min_grid : grid;
+}
+
+static void launch_compact_u8_producer_stream(const uchar2 *d_xw,
+                                              uchar2 *d_out, int groups,
+                                              cudaStream_t stream) {
+  kernel_compact_u8_xw_affine_u8_xw_output<<<compact_grid(groups),
+                                             THREADS_PER_BLOCK, 0, stream>>>(
+      d_xw, d_out, groups);
+}
+
+static void launch_compact_u8_consumer_stream(const uchar2 *d_out,
+                                              float *d_scores, int groups,
+                                              cudaStream_t stream) {
+  kernel_consume_u8_xw_output<<<compact_grid(groups), THREADS_PER_BLOCK, 0,
+                                stream>>>(d_out, d_scores, groups);
+}
+
+static void launch_l2_thrash(uint4 *d_thrash, int words, cudaStream_t stream) {
+  int block = THREADS_PER_BLOCK;
+  int grid = get_sm_count() * BLOCKS_PER_SM;
+  int min_grid = div_up(words, block);
+  if (grid > min_grid) grid = min_grid;
+  kernel_l2_thrash<<<grid, block, 0, stream>>>(d_thrash, words);
+}
+
+static bool set_persisting_l2_window(cudaStream_t stream, void *ptr,
+                                     size_t bytes, size_t *set_aside,
+                                     size_t *window_bytes) {
+  cudaDeviceProp prop;
+  CUDA_CHECK(cudaGetDeviceProperties(&prop, 0));
+  if (prop.persistingL2CacheMaxSize == 0 || prop.accessPolicyMaxWindowSize == 0)
+    return false;
+
+  size_t aside = bytes < prop.persistingL2CacheMaxSize
+                     ? bytes
+                     : prop.persistingL2CacheMaxSize;
+  size_t window =
+      bytes < prop.accessPolicyMaxWindowSize ? bytes : prop.accessPolicyMaxWindowSize;
+  CUDA_CHECK(cudaDeviceSetLimit(cudaLimitPersistingL2CacheSize, aside));
+
+  cudaStreamAttrValue attr;
+  memset(&attr, 0, sizeof(attr));
+  attr.accessPolicyWindow.base_ptr = ptr;
+  attr.accessPolicyWindow.num_bytes = window;
+  attr.accessPolicyWindow.hitRatio = 1.0;
+  attr.accessPolicyWindow.hitProp = cudaAccessPropertyPersisting;
+  attr.accessPolicyWindow.missProp = cudaAccessPropertyStreaming;
+  CUDA_CHECK(
+      cudaStreamSetAttribute(stream, cudaStreamAttributeAccessPolicyWindow, &attr));
+  *set_aside = aside;
+  *window_bytes = window;
+  return true;
+}
+
+static void clear_persisting_l2_window(cudaStream_t stream) {
+  cudaStreamAttrValue attr;
+  memset(&attr, 0, sizeof(attr));
+  attr.accessPolicyWindow.num_bytes = 0;
+  CUDA_CHECK(
+      cudaStreamSetAttribute(stream, cudaStreamAttributeAccessPolicyWindow, &attr));
+  CUDA_CHECK(cudaCtxResetPersistingL2Cache());
+}
+
+static bool verify_l2_scores(float *d_scores, float *h_scores, float *h_gold,
+                             int dimx, int dimy, int score_nbytes,
+                             float rel_tol) {
+  CUDA_CHECK(cudaMemcpy(h_scores, d_scores, score_nbytes, cudaMemcpyDeviceToHost));
+  return checkConsumerResults(h_gold, h_scores, dimx, dimy, rel_tol);
+}
+
+static L2Timing benchmark_l2_consumer(bool thrash_before_consumer,
+                                      bool use_persisting, const uchar2 *d_xw,
+                                      uchar2 *d_out, float *d_scores,
+                                      uint4 *d_thrash, int thrash_words,
+                                      float *h_scores, float *h_gold, int dimx,
+                                      int dimy, int groups, int score_nbytes,
+                                      int nreps, cudaStream_t stream,
+                                      size_t *set_aside,
+                                      size_t *window_bytes) {
+  cudaEvent_t start, stop;
+  float total_ms = 0.0f;
+  CUDA_CHECK(cudaEventCreate(&start));
+  CUDA_CHECK(cudaEventCreate(&stop));
+  bool persisting_enabled = false;
+  if (use_persisting) {
+    persisting_enabled = set_persisting_l2_window(
+        stream, d_out, groups * sizeof(uchar2), set_aside, window_bytes);
+  }
+
+  for (int rep = 0; rep < nreps; ++rep) {
+    launch_compact_u8_producer_stream(d_xw, d_out, groups, stream);
+    if (thrash_before_consumer) {
+      launch_l2_thrash(d_thrash, thrash_words, stream);
+    }
+    CUDA_CHECK(cudaEventRecord(start, stream));
+    launch_compact_u8_consumer_stream(d_out, d_scores, groups, stream);
+    CUDA_CHECK(cudaEventRecord(stop, stream));
+    CUDA_CHECK(cudaEventSynchronize(stop));
+    CUDA_CHECK(cudaGetLastError());
+    float elapsed = 0.0f;
+    CUDA_CHECK(cudaEventElapsedTime(&elapsed, start, stop));
+    total_ms += elapsed;
+  }
+
+  bool correct =
+      verify_l2_scores(d_scores, h_scores, h_gold, dimx, dimy, score_nbytes,
+                       0.001f);
+  if (persisting_enabled) clear_persisting_l2_window(stream);
+  CUDA_CHECK(cudaEventDestroy(start));
+  CUDA_CHECK(cudaEventDestroy(stop));
+
+  L2Timing result;
+  result.ms = total_ms / (float)nreps;
+  result.correct = correct;
+  result.persisting_enabled = persisting_enabled;
+  return result;
+}
+
+static L2Timing benchmark_l2_total(bool use_persisting, const uchar2 *d_xw,
+                                   uchar2 *d_out, float *d_scores,
+                                   float *h_scores, float *h_gold, int dimx,
+                                   int dimy, int groups, int score_nbytes,
+                                   int nreps, cudaStream_t stream,
+                                   size_t *set_aside,
+                                   size_t *window_bytes) {
+  cudaEvent_t start, stop;
+  float total_ms = 0.0f;
+  CUDA_CHECK(cudaEventCreate(&start));
+  CUDA_CHECK(cudaEventCreate(&stop));
+  bool persisting_enabled = false;
+  if (use_persisting) {
+    persisting_enabled = set_persisting_l2_window(
+        stream, d_out, groups * sizeof(uchar2), set_aside, window_bytes);
+  }
+
+  for (int rep = 0; rep < nreps; ++rep) {
+    CUDA_CHECK(cudaEventRecord(start, stream));
+    launch_compact_u8_producer_stream(d_xw, d_out, groups, stream);
+    launch_compact_u8_consumer_stream(d_out, d_scores, groups, stream);
+    CUDA_CHECK(cudaEventRecord(stop, stream));
+    CUDA_CHECK(cudaEventSynchronize(stop));
+    CUDA_CHECK(cudaGetLastError());
+    float elapsed = 0.0f;
+    CUDA_CHECK(cudaEventElapsedTime(&elapsed, start, stop));
+    total_ms += elapsed;
+  }
+
+  bool correct =
+      verify_l2_scores(d_scores, h_scores, h_gold, dimx, dimy, score_nbytes,
+                       0.001f);
+  if (persisting_enabled) clear_persisting_l2_window(stream);
+  CUDA_CHECK(cudaEventDestroy(start));
+  CUDA_CHECK(cudaEventDestroy(stop));
+
+  L2Timing result;
+  result.ms = total_ms / (float)nreps;
+  result.correct = correct;
+  result.persisting_enabled = persisting_enabled;
+  return result;
+}
+
+static void print_l2_row(const char *variant, const L2Timing *timing,
+                         long long logical_bytes) {
+  printf("%s,%s,%8.6f,%lld,%s\n", variant, timing->correct ? "yes" : "no",
+         timing->ms, logical_bytes,
+         timing->persisting_enabled ? "yes" : "no");
+}
+
+int main() {
+  int dimx = DIMX;
+  int dimy = DIMY;
+  int nreps = NREPS;
+  int total = dimx * dimy;
+  int groups = total / 4;
+  int input_nbytes = total * (int)sizeof(float);
+  int compact_u8_nbytes = groups * (int)sizeof(uchar2);
+  int score_nbytes = groups * (int)sizeof(float);
+  int thrash_words = L2_THRASH_BYTES / (int)sizeof(uint4);
+  long long consumer_logical_bytes =
+      (long long)compact_u8_nbytes + (long long)score_nbytes;
+  long long total_logical_bytes =
+      (long long)compact_u8_nbytes * 2LL + consumer_logical_bytes;
+
+  cudaDeviceProp prop;
+  CUDA_CHECK(cudaGetDeviceProperties(&prop, 0));
+  printf("l2_config,l2_cache_bytes,%zu\n", (size_t)prop.l2CacheSize);
+  printf("l2_config,persisting_l2_max_bytes,%zu\n",
+         (size_t)prop.persistingL2CacheMaxSize);
+  printf("l2_config,access_policy_max_window_bytes,%zu\n",
+         (size_t)prop.accessPolicyMaxWindowSize);
+  printf("l2_config,compact_output_bytes,%d\n", compact_u8_nbytes);
+  printf("l2_config,thrash_bytes,%d\n", L2_THRASH_BYTES);
+
+  float *h_initial = (float *)malloc(input_nbytes);
+  float *h_gold = (float *)malloc(input_nbytes);
+  float *h_scores = (float *)malloc(score_nbytes);
+  uchar2 *h_xw = (uchar2 *)malloc(compact_u8_nbytes);
+  uchar2 *d_xw = 0, *d_out = 0;
+  float *d_scores = 0;
+  uint4 *d_thrash = 0;
+  if (!h_initial || !h_gold || !h_scores || !h_xw) {
+    fprintf(stderr, "could not allocate host L2 experiment memory\n");
+    return EXIT_FAILURE;
+  }
+  CUDA_CHECK(cudaMalloc((void **)&d_xw, compact_u8_nbytes));
+  CUDA_CHECK(cudaMalloc((void **)&d_out, compact_u8_nbytes));
+  CUDA_CHECK(cudaMalloc((void **)&d_scores, score_nbytes));
+  CUDA_CHECK(cudaMalloc((void **)&d_thrash, L2_THRASH_BYTES));
+
+  fill_l2_inputs(h_initial, h_xw, total);
+  memcpy(h_gold, h_initial, input_nbytes);
+  computeCpuResults(h_gold, dimx, dimy, 5, 1);
+  CUDA_CHECK(cudaMemcpy(d_xw, h_xw, compact_u8_nbytes, cudaMemcpyHostToDevice));
+  CUDA_CHECK(cudaMemset(d_thrash, 1, L2_THRASH_BYTES));
+
+  cudaStream_t stream;
+  CUDA_CHECK(cudaStreamCreate(&stream));
+  size_t set_aside = 0;
+  size_t window_bytes = 0;
+
+  printf("variant,correct,time_ms,logical_bytes,persisting_l2\n");
+  L2Timing warm = benchmark_l2_consumer(
+      false, false, d_xw, d_out, d_scores, d_thrash, thrash_words, h_scores,
+      h_gold, dimx, dimy, groups, score_nbytes, nreps, stream, &set_aside,
+      &window_bytes);
+  print_l2_row("consume_u8_after_producer_warm_l2_experimental", &warm,
+               consumer_logical_bytes);
+
+  L2Timing cold = benchmark_l2_consumer(
+      true, false, d_xw, d_out, d_scores, d_thrash, thrash_words, h_scores,
+      h_gold, dimx, dimy, groups, score_nbytes, nreps, stream, &set_aside,
+      &window_bytes);
+  print_l2_row("consume_u8_after_l2_thrash_experimental", &cold,
+               consumer_logical_bytes);
+
+  L2Timing persist = benchmark_l2_consumer(
+      false, true, d_xw, d_out, d_scores, d_thrash, thrash_words, h_scores,
+      h_gold, dimx, dimy, groups, score_nbytes, nreps, stream, &set_aside,
+      &window_bytes);
+  print_l2_row("consume_u8_after_persisting_l2_experimental", &persist,
+               consumer_logical_bytes);
+
+  L2Timing persist_thrash = benchmark_l2_consumer(
+      true, true, d_xw, d_out, d_scores, d_thrash, thrash_words, h_scores,
+      h_gold, dimx, dimy, groups, score_nbytes, nreps, stream, &set_aside,
+      &window_bytes);
+  print_l2_row("consume_u8_after_persisting_l2_thrash_experimental",
+               &persist_thrash, consumer_logical_bytes);
+
+  L2Timing total_warm = benchmark_l2_total(
+      false, d_xw, d_out, d_scores, h_scores, h_gold, dimx, dimy, groups,
+      score_nbytes, nreps, stream, &set_aside, &window_bytes);
+  print_l2_row("compact_u8_producer_consumer_total_experimental", &total_warm,
+               total_logical_bytes);
+
+  L2Timing total_persist = benchmark_l2_total(
+      true, d_xw, d_out, d_scores, h_scores, h_gold, dimx, dimy, groups,
+      score_nbytes, nreps, stream, &set_aside, &window_bytes);
+  print_l2_row("compact_u8_producer_consumer_persisting_l2_total_experimental",
+               &total_persist, total_logical_bytes);
+
+  printf("l2_config,set_aside_bytes,%zu\n", set_aside);
+  printf("l2_config,window_bytes,%zu\n", window_bytes);
+  printf("CUDA: %s\n", cudaGetErrorString(cudaGetLastError()));
+
+  CUDA_CHECK(cudaStreamDestroy(stream));
+  if (d_xw) CUDA_CHECK(cudaFree(d_xw));
+  if (d_out) CUDA_CHECK(cudaFree(d_out));
+  if (d_scores) CUDA_CHECK(cudaFree(d_scores));
+  if (d_thrash) CUDA_CHECK(cudaFree(d_thrash));
+  if (h_initial) free(h_initial);
+  if (h_gold) free(h_gold);
+  if (h_scores) free(h_scores);
+  if (h_xw) free(h_xw);
+  CUDA_CHECK(cudaDeviceReset());
+
+  bool all_pass = warm.correct && cold.correct && persist.correct &&
+                  persist_thrash.correct && total_warm.correct &&
+                  total_persist.correct;
+  return all_pass ? EXIT_SUCCESS : EXIT_FAILURE;
 }
 
 #else

@@ -200,6 +200,15 @@ max/mean/RMS relative error, absolute error, and relative-error histogram bucket
 for FP16, BF16, compact U8, compact U4, and related ABI-changing outputs.
 
 ```bash
+make l2-report
+```
+
+Builds the compact U8 producer/consumer L2 experiment and writes `l2_cache.csv`
+plus `l2_cache.json` under `REPORT_DIR`. It compares the compact U8 consumer
+when the producer output is warm in L2, after an L2-thrashing pass, and with
+CUDA's persisting-L2 access policy applied to the compact output buffer.
+
+```bash
 make launch-sweep
 ```
 
@@ -311,6 +320,7 @@ and the practical takeaway.
 | GPU packing plus custom U8 output can win end-to-end | `0.2500 ms` median over 3 full-size runs from original AoS input | Reuses the measured U8 pack and custom U8-output consumer; logical traffic drops to `320 MiB` for pack input/write plus compact output path | First setup-paid compact win, but it requires the strongest ABI specialization: U8 x/w input, U8 x/w output, and implicit y/z constants |
 | Decoding custom U8 output back to float can erase the win | Decode-only `0.1972 ms`; pack plus custom U8 output plus float decode `0.4356 ms` median over 3 full-size runs | Nsight on decode reports `177.344 us`, `82.98%` DRAM throughput, `34 MB` reads, `199 MB` writes, `1,048,576` L1 load sectors, and `8,388,608` L1 store sectors | Custom output is only attractive if downstream consumes compact form or decode is fused with useful work |
 | A realistic compact downstream consumer can preserve the custom-output win | Float-output projection `0.2125 ms`; compact-U8 projection `0.0274 ms`; full float pipeline plus projection `0.5789 ms`; setup-paid compact pipeline plus projection `0.2866 ms` | Nsight reports the float consumer at `211.168 us`, `92.61%` DRAM throughput, `268 MB` reads, and `8,388,608` L1 load sectors; compact consumer at `36.640 us`, `80.3%` DRAM throughput, `34 MB` reads, and `1,048,576` L1 load sectors | Custom U8 output is viable only when the next stage consumes compact x/w directly; this is the current best measured end-to-end specialized path |
+| Compact U8 output can benefit from L2 residency | Consumer after producer `0.0264 ms`; same consumer after a `256 MiB` L2-thrashing pass `0.0711 ms`; persisting-L2 producer+consumer total `0.0463 ms` versus `0.0543 ms` without it | Blackwell reports `128 MiB` L2 and `80 MiB` persisting set-aside; compact output is `32 MiB`, so the output fits in the persisting window | L2 residency is a real lever for compact producer-consumer pipelines, but the larger win is still fusion or keeping multiple consumers on compact output |
 | BF16 output might be cheaper enough while staying inside tolerance | `0.2570 ms`, expected failure; first checked element had `rdiff 0.001955` | BF16 has the same output byte count as FP16 here but too few mantissa bits for the benchmark tolerance | Do not use BF16 unless the tolerance relaxes or output error is judged differently downstream |
 | SASS should confirm what `tan` actually costs | Default vector SASS contains `MUFU.SIN`, `MUFU.COS`, and `MUFU.RCP` in the tangent lane | `__tanf` lowers to sin/cos/reciprocal-like work, so explicit `sincos` sharing is not free across independent lanes | Worth revisiting only if the iterative scalar path becomes the target again |
 | CUDA Graph replay can amortize launch overhead | On `64 x 64`, stream H2D+kernel replay measured `0.014572 ms`; graph replay measured `0.013954 ms` | Graph replay trims host submission overhead, but the tested end-to-end replay still includes the H2D copy and tiny kernel work | Useful only for many small launches; it is not a lever for the full-size event-timed kernel |
@@ -349,6 +359,8 @@ directories:
   pipeline-report`.
 - `launch_sweep.json` / `launch_sweep.csv`: rebuild sweep for launch geometry,
   ILP, and register caps from `make launch-sweep`.
+- `l2_cache.json` / `l2_cache.csv`: compact U8 producer/consumer cache
+  residency experiment from `make l2-report`.
 
 ## Glossary
 

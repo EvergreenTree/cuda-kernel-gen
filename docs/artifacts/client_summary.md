@@ -34,25 +34,30 @@
 | Decode U8 output to float | yes | 0.1966 ms | 33.55x | 288.0 MiB |
 | Float output + score pipeline | yes | 0.5786 ms | 11.40x | 832.0 MiB |
 | Compact U8 output + score pipeline | yes | 0.2868 ms | 23.00x | 448.0 MiB |
-| L2-persisting U8 in/out kernel | yes | 0.0227 ms | 577.4x | 64.0 MiB |
-| L2-resident U8 in/out pipeline | yes | 0.0466 ms | 280.9x | 160.0 MiB |
+| L2-persisting U8 in/out kernel | yes | 0.0224 ms | 583.9x | 64.0 MiB |
+| uint4-packed U8 in/out kernel | yes | 0.0171 ms | 764.8x | 64.0 MiB |
+| uint4 + L2 U8 in/out kernel | yes | 0.0169 ms | 774.9x | 64.0 MiB |
+| L2-resident U8 in/out pipeline | yes | 0.0460 ms | 284.4x | 160.0 MiB |
+| uint4 + L2 compact pipeline | yes | 0.0419 ms | 312.1x | 160.0 MiB |
 
 ## Extreme L2-Resident Option
 
 | Item | Value |
 | --- | --- |
-| Persisting U8 in/out kernel | 0.0227 ms |
-| Kernel-only speedup vs strict baseline | 577.4x |
-| Input L2 lift vs warm producer | 1.65x |
-| Input L2 lift vs thrashed producer | 3.11x |
-| Persisting producer + consumer | 0.0466 ms |
-| Pipeline speedup vs strict baseline | 280.9x |
+| Best U8 in/out kernel | 0.0169 ms |
+| Kernel-only speedup vs strict baseline | 774.9x |
+| Scalar input L2 lift vs warm producer | 1.69x |
+| Scalar input L2 lift vs thrashed producer | 3.15x |
+| uint4 lift over scalar L2 producer | 1.33x |
+| L2 lift on uint4 producer | 1.01x |
+| Best producer + consumer | 0.0419 ms |
+| Pipeline speedup vs strict baseline | 312.1x |
 | Warm consumer vs thrashed consumer | 2.8x |
 | Persisting total lift | 1.17x |
 | Compact output footprint | 32.0 MiB |
 | L2 budget on this host | 80.0 MiB |
 
-The kernel-only L2 row combines the current U8 input + U8 output winner with persisting L2 on compact input. The adjacent pipeline row uses persisting L2 on compact output for the downstream consumer. Both are custom-ABI options, remain memory-path limited rather than compute-bound, and should be remeasured on B200-class systems where HBM3e bandwidth narrows the cache advantage.
+The kernel-only L2 row combines uint4-packed U8 input/output with persisting L2 on compact input. The adjacent pipeline row uses the uint4 producer plus persisting L2 on compact output for the downstream consumer. Both are custom-ABI options, remain memory-path limited rather than compute-bound, and should be remeasured on B200-class systems where HBM3e bandwidth narrows the cache advantage.
 
 | GPU family | Usable cache estimate | 256 MiB working set | 512 MiB working set |
 | --- | --- | --- | --- |

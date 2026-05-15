@@ -15,110 +15,170 @@
   "variants": {
     "compact_u8_producer_warm_l2_experimental": {
       "correct": true,
-      "median_ms": 0.037348,
-      "min_ms": 0.03726,
-      "max_ms": 0.037614,
+      "median_ms": 0.037916,
+      "min_ms": 0.037897,
+      "max_ms": 0.038135,
       "samples": 3,
       "logical_bytes_per_launch": 67108864,
-      "effective_bandwidth_gbps": 1796.8529506265395,
+      "effective_bandwidth_gbps": 1769.9352252347292,
       "persisting_l2": false
     },
     "compact_u8_producer_after_l2_thrash_experimental": {
       "correct": true,
-      "median_ms": 0.070364,
-      "min_ms": 0.070307,
-      "max_ms": 0.070419,
+      "median_ms": 0.070532,
+      "min_ms": 0.070162,
+      "max_ms": 0.070563,
       "samples": 3,
       "logical_bytes_per_launch": 67108864,
-      "effective_bandwidth_gbps": 953.7386163379001,
+      "effective_bandwidth_gbps": 951.4669086372144,
       "persisting_l2": false,
-      "speedup_of_warm_l2_vs_thrash": 1.8840098532719287
+      "speedup_of_warm_l2_vs_thrash": 1.8602173225023737
     },
     "compact_u8_producer_persisting_input_experimental": {
       "correct": true,
-      "median_ms": 0.022653,
-      "min_ms": 0.022345,
-      "max_ms": 0.022674,
+      "median_ms": 0.022403,
+      "min_ms": 0.022076,
+      "max_ms": 0.0226,
       "samples": 3,
       "logical_bytes_per_launch": 67108864,
-      "effective_bandwidth_gbps": 2962.4713724451503,
+      "effective_bandwidth_gbps": 2995.5302414855155,
       "persisting_l2": true,
-      "speedup_vs_warm_l2": 1.64869995144131
+      "speedup_vs_warm_l2": 1.692451903762889
     },
     "compact_u8_producer_persisting_input_after_l2_thrash_experimental": {
       "correct": true,
-      "median_ms": 0.024166,
-      "min_ms": 0.024041,
-      "max_ms": 0.024244,
+      "median_ms": 0.024322,
+      "min_ms": 0.024294,
+      "max_ms": 0.024363,
       "samples": 3,
       "logical_bytes_per_launch": 67108864,
-      "effective_bandwidth_gbps": 2776.9951171066787,
+      "effective_bandwidth_gbps": 2759.183619768111,
       "persisting_l2": true,
-      "speedup_vs_thrash_without_persisting": 2.9116941156997433
+      "speedup_vs_thrash_without_persisting": 2.899925992928213
+    },
+    "compact_u8_producer_uint4_experimental": {
+      "correct": true,
+      "median_ms": 0.017103,
+      "min_ms": 0.017039,
+      "max_ms": 0.017323,
+      "samples": 3,
+      "logical_bytes_per_launch": 67108864,
+      "effective_bandwidth_gbps": 3923.8065836402966,
+      "persisting_l2": false
+    },
+    "compact_u8_producer_uint4_persisting_input_experimental": {
+      "correct": true,
+      "median_ms": 0.016879,
+      "min_ms": 0.016838,
+      "max_ms": 0.016916,
+      "samples": 3,
+      "logical_bytes_per_launch": 67108864,
+      "effective_bandwidth_gbps": 3975.8791397594637,
+      "persisting_l2": true
     },
     "consume_u8_after_producer_warm_l2_experimental": {
       "correct": true,
-      "median_ms": 0.026875,
-      "min_ms": 0.026678,
-      "max_ms": 0.026961,
+      "median_ms": 0.026927,
+      "min_ms": 0.026881,
+      "max_ms": 0.027083,
       "samples": 3,
       "logical_bytes_per_launch": 100663296,
-      "effective_bandwidth_gbps": 3745.611013953488,
+      "effective_bandwidth_gbps": 3738.3776878226313,
       "persisting_l2": false
     },
     "consume_u8_after_l2_thrash_experimental": {
       "correct": true,
-      "median_ms": 0.075921,
-      "min_ms": 0.075703,
-      "max_ms": 0.075984,
+      "median_ms": 0.075802,
+      "min_ms": 0.075769,
+      "max_ms": 0.075816,
       "samples": 3,
       "logical_bytes_per_launch": 100663296,
-      "effective_bandwidth_gbps": 1325.8952858892796,
+      "effective_bandwidth_gbps": 1327.976781615261,
       "persisting_l2": false,
-      "speedup_of_warm_l2_vs_thrash": 2.824967441860465
+      "speedup_of_warm_l2_vs_thrash": 2.8150926579269875
     },
     "consume_u8_after_persisting_l2_experimental": {
       "correct": true,
-      "median_ms": 0.023408,
-      "min_ms": 0.023393,
-      "max_ms": 0.023614,
+      "median_ms": 0.023612,
+      "min_ms": 0.023541,
+      "max_ms": 0.023674,
       "samples": 3,
       "logical_bytes_per_launch": 100663296,
-      "effective_bandwidth_gbps": 4300.380041011619,
+      "effective_bandwidth_gbps": 4263.226156191767,
       "persisting_l2": true,
-      "speedup_vs_warm_l2": 1.1481117566643881
+      "speedup_vs_warm_l2": 1.1403947145519227
     },
     "consume_u8_after_persisting_l2_thrash_experimental": {
       "correct": true,
-      "median_ms": 0.043119,
-      "min_ms": 0.043109,
-      "max_ms": 0.043185,
+      "median_ms": 0.043148,
+      "min_ms": 0.042993,
+      "max_ms": 0.04339,
       "samples": 3,
       "logical_bytes_per_launch": 100663296,
-      "effective_bandwidth_gbps": 2334.54616294441,
+      "effective_bandwidth_gbps": 2332.9771020673033,
       "persisting_l2": true,
-      "speedup_vs_thrash_without_persisting": 1.7607319279204066
+      "speedup_vs_thrash_without_persisting": 1.7567905812552145
+    },
+    "consume_u8_uint4_after_producer_warm_l2_experimental": {
+      "correct": true,
+      "median_ms": 0.131584,
+      "min_ms": 0.131511,
+      "max_ms": 0.131725,
+      "samples": 3,
+      "logical_bytes_per_launch": 100663296,
+      "effective_bandwidth_gbps": 765.0116731517509,
+      "persisting_l2": false
+    },
+    "consume_u8_uint4_after_persisting_l2_experimental": {
+      "correct": true,
+      "median_ms": 0.131711,
+      "min_ms": 0.131472,
+      "max_ms": 0.13179,
+      "samples": 3,
+      "logical_bytes_per_launch": 100663296,
+      "effective_bandwidth_gbps": 764.2740241893238,
+      "persisting_l2": true
     },
     "compact_u8_producer_consumer_total_experimental": {
       "correct": true,
-      "median_ms": 0.054466,
-      "min_ms": 0.054326,
-      "max_ms": 0.05451,
+      "median_ms": 0.053768,
+      "min_ms": 0.053669,
+      "max_ms": 0.053782,
       "samples": 3,
       "logical_bytes_per_launch": 167772160,
-      "effective_bandwidth_gbps": 3080.309918114053,
+      "effective_bandwidth_gbps": 3120.2975747656596,
       "persisting_l2": false
     },
     "compact_u8_producer_consumer_persisting_l2_total_experimental": {
       "correct": true,
-      "median_ms": 0.046572,
-      "min_ms": 0.046516,
-      "max_ms": 0.046575,
+      "median_ms": 0.045991,
+      "min_ms": 0.045867,
+      "max_ms": 0.046124,
       "samples": 3,
       "logical_bytes_per_launch": 167772160,
-      "effective_bandwidth_gbps": 3602.4254917117582,
+      "effective_bandwidth_gbps": 3647.9345958991976,
+      "persisting_l2": true
+    },
+    "compact_u8_producer_uint4_consumer_total_experimental": {
+      "correct": true,
+      "median_ms": 0.050812,
+      "min_ms": 0.05063,
+      "max_ms": 0.050821,
+      "samples": 3,
+      "logical_bytes_per_launch": 167772160,
+      "effective_bandwidth_gbps": 3301.8216169408797,
+      "persisting_l2": false
+    },
+    "compact_u8_producer_uint4_consumer_persisting_l2_total_experimental": {
+      "correct": true,
+      "median_ms": 0.041912,
+      "min_ms": 0.041796,
+      "max_ms": 0.041981,
+      "samples": 3,
+      "logical_bytes_per_launch": 167772160,
+      "effective_bandwidth_gbps": 4002.9623974040846,
       "persisting_l2": true
     }
   },
-  "raw_output": "l2_config,l2_cache_bytes,134217728\nl2_config,persisting_l2_max_bytes,83886080\nl2_config,access_policy_max_window_bytes,134217728\nl2_config,compact_output_bytes,33554432\nl2_config,thrash_bytes,268435456\nvariant,correct,time_ms,logical_bytes,persisting_l2\ncompact_u8_producer_warm_l2_experimental,yes,0.037614,67108864,no\ncompact_u8_producer_after_l2_thrash_experimental,yes,0.070364,67108864,no\ncompact_u8_producer_persisting_input_experimental,yes,0.022345,67108864,yes\ncompact_u8_producer_persisting_input_after_l2_thrash_experimental,yes,0.024244,67108864,yes\nconsume_u8_after_producer_warm_l2_experimental,yes,0.026678,100663296,no\nconsume_u8_after_l2_thrash_experimental,yes,0.075984,100663296,no\nconsume_u8_after_persisting_l2_experimental,yes,0.023408,100663296,yes\nconsume_u8_after_persisting_l2_thrash_experimental,yes,0.043109,100663296,yes\ncompact_u8_producer_consumer_total_experimental,yes,0.054466,167772160,no\ncompact_u8_producer_consumer_persisting_l2_total_experimental,yes,0.046572,167772160,yes\nl2_config,set_aside_bytes,33554432\nl2_config,window_bytes,33554432\nCUDA: no error\n\n--- run ---\nl2_config,l2_cache_bytes,134217728\nl2_config,persisting_l2_max_bytes,83886080\nl2_config,access_policy_max_window_bytes,134217728\nl2_config,compact_output_bytes,33554432\nl2_config,thrash_bytes,268435456\nvariant,correct,time_ms,logical_bytes,persisting_l2\ncompact_u8_producer_warm_l2_experimental,yes,0.037260,67108864,no\ncompact_u8_producer_after_l2_thrash_experimental,yes,0.070419,67108864,no\ncompact_u8_producer_persisting_input_experimental,yes,0.022653,67108864,yes\ncompact_u8_producer_persisting_input_after_l2_thrash_experimental,yes,0.024166,67108864,yes\nconsume_u8_after_producer_warm_l2_experimental,yes,0.026961,100663296,no\nconsume_u8_after_l2_thrash_experimental,yes,0.075921,100663296,no\nconsume_u8_after_persisting_l2_experimental,yes,0.023614,100663296,yes\nconsume_u8_after_persisting_l2_thrash_experimental,yes,0.043119,100663296,yes\ncompact_u8_producer_consumer_total_experimental,yes,0.054326,167772160,no\ncompact_u8_producer_consumer_persisting_l2_total_experimental,yes,0.046516,167772160,yes\nl2_config,set_aside_bytes,33554432\nl2_config,window_bytes,33554432\nCUDA: no error\n\n--- run ---\nl2_config,l2_cache_bytes,134217728\nl2_config,persisting_l2_max_bytes,83886080\nl2_config,access_policy_max_window_bytes,134217728\nl2_config,compact_output_bytes,33554432\nl2_config,thrash_bytes,268435456\nvariant,correct,time_ms,logical_bytes,persisting_l2\ncompact_u8_producer_warm_l2_experimental,yes,0.037348,67108864,no\ncompact_u8_producer_after_l2_thrash_experimental,yes,0.070307,67108864,no\ncompact_u8_producer_persisting_input_experimental,yes,0.022674,67108864,yes\ncompact_u8_producer_persisting_input_after_l2_thrash_experimental,yes,0.024041,67108864,yes\nconsume_u8_after_producer_warm_l2_experimental,yes,0.026875,100663296,no\nconsume_u8_after_l2_thrash_experimental,yes,0.075703,100663296,no\nconsume_u8_after_persisting_l2_experimental,yes,0.023393,100663296,yes\nconsume_u8_after_persisting_l2_thrash_experimental,yes,0.043185,100663296,yes\ncompact_u8_producer_consumer_total_experimental,yes,0.054510,167772160,no\ncompact_u8_producer_consumer_persisting_l2_total_experimental,yes,0.046575,167772160,yes\nl2_config,set_aside_bytes,33554432\nl2_config,window_bytes,33554432\nCUDA: no error\n"
+  "raw_output": "l2_config,l2_cache_bytes,134217728\nl2_config,persisting_l2_max_bytes,83886080\nl2_config,access_policy_max_window_bytes,134217728\nl2_config,compact_output_bytes,33554432\nl2_config,thrash_bytes,268435456\nvariant,correct,time_ms,logical_bytes,persisting_l2\ncompact_u8_producer_warm_l2_experimental,yes,0.037897,67108864,no\ncompact_u8_producer_after_l2_thrash_experimental,yes,0.070532,67108864,no\ncompact_u8_producer_persisting_input_experimental,yes,0.022076,67108864,yes\ncompact_u8_producer_persisting_input_after_l2_thrash_experimental,yes,0.024294,67108864,yes\ncompact_u8_producer_uint4_experimental,yes,0.017039,67108864,no\ncompact_u8_producer_uint4_persisting_input_experimental,yes,0.016916,67108864,yes\nconsume_u8_after_producer_warm_l2_experimental,yes,0.026927,100663296,no\nconsume_u8_after_l2_thrash_experimental,yes,0.075802,100663296,no\nconsume_u8_after_persisting_l2_experimental,yes,0.023674,100663296,yes\nconsume_u8_after_persisting_l2_thrash_experimental,yes,0.042993,100663296,yes\nconsume_u8_uint4_after_producer_warm_l2_experimental,yes,0.131511,100663296,no\nconsume_u8_uint4_after_persisting_l2_experimental,yes,0.131472,100663296,yes\ncompact_u8_producer_consumer_total_experimental,yes,0.053782,167772160,no\ncompact_u8_producer_consumer_persisting_l2_total_experimental,yes,0.045991,167772160,yes\ncompact_u8_producer_uint4_consumer_total_experimental,yes,0.050812,167772160,no\ncompact_u8_producer_uint4_consumer_persisting_l2_total_experimental,yes,0.041796,167772160,yes\nl2_config,set_aside_bytes,33554432\nl2_config,window_bytes,33554432\nCUDA: no error\n\n--- run ---\nl2_config,l2_cache_bytes,134217728\nl2_config,persisting_l2_max_bytes,83886080\nl2_config,access_policy_max_window_bytes,134217728\nl2_config,compact_output_bytes,33554432\nl2_config,thrash_bytes,268435456\nvariant,correct,time_ms,logical_bytes,persisting_l2\ncompact_u8_producer_warm_l2_experimental,yes,0.038135,67108864,no\ncompact_u8_producer_after_l2_thrash_experimental,yes,0.070563,67108864,no\ncompact_u8_producer_persisting_input_experimental,yes,0.022600,67108864,yes\ncompact_u8_producer_persisting_input_after_l2_thrash_experimental,yes,0.024363,67108864,yes\ncompact_u8_producer_uint4_experimental,yes,0.017323,67108864,no\ncompact_u8_producer_uint4_persisting_input_experimental,yes,0.016879,67108864,yes\nconsume_u8_after_producer_warm_l2_experimental,yes,0.026881,100663296,no\nconsume_u8_after_l2_thrash_experimental,yes,0.075816,100663296,no\nconsume_u8_after_persisting_l2_experimental,yes,0.023612,100663296,yes\nconsume_u8_after_persisting_l2_thrash_experimental,yes,0.043148,100663296,yes\nconsume_u8_uint4_after_producer_warm_l2_experimental,yes,0.131725,100663296,no\nconsume_u8_uint4_after_persisting_l2_experimental,yes,0.131790,100663296,yes\ncompact_u8_producer_consumer_total_experimental,yes,0.053669,167772160,no\ncompact_u8_producer_consumer_persisting_l2_total_experimental,yes,0.046124,167772160,yes\ncompact_u8_producer_uint4_consumer_total_experimental,yes,0.050630,167772160,no\ncompact_u8_producer_uint4_consumer_persisting_l2_total_experimental,yes,0.041912,167772160,yes\nl2_config,set_aside_bytes,33554432\nl2_config,window_bytes,33554432\nCUDA: no error\n\n--- run ---\nl2_config,l2_cache_bytes,134217728\nl2_config,persisting_l2_max_bytes,83886080\nl2_config,access_policy_max_window_bytes,134217728\nl2_config,compact_output_bytes,33554432\nl2_config,thrash_bytes,268435456\nvariant,correct,time_ms,logical_bytes,persisting_l2\ncompact_u8_producer_warm_l2_experimental,yes,0.037916,67108864,no\ncompact_u8_producer_after_l2_thrash_experimental,yes,0.070162,67108864,no\ncompact_u8_producer_persisting_input_experimental,yes,0.022403,67108864,yes\ncompact_u8_producer_persisting_input_after_l2_thrash_experimental,yes,0.024322,67108864,yes\ncompact_u8_producer_uint4_experimental,yes,0.017103,67108864,no\ncompact_u8_producer_uint4_persisting_input_experimental,yes,0.016838,67108864,yes\nconsume_u8_after_producer_warm_l2_experimental,yes,0.027083,100663296,no\nconsume_u8_after_l2_thrash_experimental,yes,0.075769,100663296,no\nconsume_u8_after_persisting_l2_experimental,yes,0.023541,100663296,yes\nconsume_u8_after_persisting_l2_thrash_experimental,yes,0.043390,100663296,yes\nconsume_u8_uint4_after_producer_warm_l2_experimental,yes,0.131584,100663296,no\nconsume_u8_uint4_after_persisting_l2_experimental,yes,0.131711,100663296,yes\ncompact_u8_producer_consumer_total_experimental,yes,0.053768,167772160,no\ncompact_u8_producer_consumer_persisting_l2_total_experimental,yes,0.045867,167772160,yes\ncompact_u8_producer_uint4_consumer_total_experimental,yes,0.050821,167772160,no\ncompact_u8_producer_uint4_consumer_persisting_l2_total_experimental,yes,0.041981,167772160,yes\nl2_config,set_aside_bytes,33554432\nl2_config,window_bytes,33554432\nCUDA: no error\n"
 }

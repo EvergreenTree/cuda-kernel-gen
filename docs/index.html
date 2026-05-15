@@ -423,8 +423,8 @@ code {
     <div class="hero-grid">
       <div class="stat "><p>Original baseline</p><strong>13.0800 ms</strong><span>Strict problem definition</span></div>
       <div class="stat "><p>Recommended drop-in</p><strong>42.2x</strong><span>0.3099 ms</span></div>
-      <div class="stat "><p>Fastest kernel-only</p><strong>577.4x</strong><span>0.0227 ms</span></div>
-      <div class="stat "><p>Adjacent L2 pipeline</p><strong>280.9x</strong><span>0.0466 ms</span></div>
+      <div class="stat "><p>Fastest kernel-only</p><strong>774.9x</strong><span>0.0169 ms</span></div>
+      <div class="stat "><p>Adjacent L2 pipeline</p><strong>312.1x</strong><span>0.0419 ms</span></div>
     </div>
   </div>
 </header>
@@ -435,7 +435,7 @@ code {
       <h2>Executive Summary</h2>
       <p>The baseline problem processes a fixed 8192 x 8192 float grid with five dependent transcendental iterations per element and a 1e-3 relative tolerance check.</p>
       <p>The recommended production default is the vectorized float kernel. It keeps the input/output contract intact and moves the runtime from 13.0800 ms to 0.3099 ms on this Blackwell host.</p>
-      <p>The fastest compact row combines the U8 input/U8 output kernel with persisting L2 on the compact input. The adjacent L2 pipeline is slower because it times useful downstream consumer work too; use that row to judge product pipelines, not standalone kernel throughput.</p>
+      <p>The fastest compact row combines uint4-packed U8 input/output with persisting L2 on the compact input. The adjacent L2 pipeline is slower because it times useful downstream consumer work too; use that row to judge product pipelines, not standalone kernel throughput.</p>
       <p>Nsight shows the optimized path is bandwidth-limited: the GPU is moving data near peak DRAM throughput while arithmetic units still have headroom. That does not mean the architecture is deficient; it means the next gains come primarily from moving fewer bytes, or from running on hardware with more memory bandwidth.</p>
     </div>
     <div class="decision">
@@ -491,12 +491,12 @@ code {
             <article class="option-card max">
               <div>
                 <span class="pill">Extreme ABI</span>
-                <h3>L2-persisting U8 in/out kernel</h3>
-                <p>Fastest kernel-only result when compact input is reused and fits in persisting L2.</p>
+                <h3>uint4 + L2 U8 in/out kernel</h3>
+                <p>Fastest kernel-only result: vectorized compact loads/stores plus persisting compact input.</p>
               </div>
               <div class="option-metrics">
-                <strong>577.4x</strong>
-                <span>0.0227 ms</span>
+                <strong>774.9x</strong>
+                <span>0.0169 ms</span>
                 <span>64 MiB data moved</span>
               </div>
             </article>
@@ -504,12 +504,12 @@ code {
             <article class="option-card max">
               <div>
                 <span class="pill">Extreme ABI</span>
-                <h3>L2-resident U8 in/out pipeline</h3>
-                <p>U8 input, U8 output, and compact consumer timed together with persisting L2.</p>
+                <h3>uint4 + L2 compact pipeline</h3>
+                <p>Best adjacent producer-consumer path: uint4 producer plus persisting compact output.</p>
               </div>
               <div class="option-metrics">
-                <strong>280.9x</strong>
-                <span>0.0466 ms</span>
+                <strong>312.1x</strong>
+                <span>0.0419 ms</span>
                 <span>160 MiB data moved</span>
               </div>
             </article>
@@ -536,13 +536,35 @@ code {
     <div class="ladder">
             <div class="ladder-row max">
               <div class="ladder-label">
-                <strong>L2-persisting U8 in/out kernel</strong>
+                <strong>uint4 + L2 U8 in/out kernel</strong>
                 <span>Extreme ABI</span>
               </div>
               <div class="ladder-track">
                 <span style="width: 100.00%"></span>
               </div>
-              <div class="ladder-value">577.4x</div>
+              <div class="ladder-value">774.9x</div>
+            </div>
+
+            <div class="ladder-row max">
+              <div class="ladder-label">
+                <strong>uint4-packed U8 in/out kernel</strong>
+                <span>Specialized ABI</span>
+              </div>
+              <div class="ladder-track">
+                <span style="width: 98.69%"></span>
+              </div>
+              <div class="ladder-value">764.8x</div>
+            </div>
+
+            <div class="ladder-row max">
+              <div class="ladder-label">
+                <strong>L2-persisting U8 in/out kernel</strong>
+                <span>Extreme ABI</span>
+              </div>
+              <div class="ladder-track">
+                <span style="width: 75.34%"></span>
+              </div>
+              <div class="ladder-value">583.9x</div>
             </div>
 
             <div class="ladder-row max">
@@ -551,9 +573,20 @@ code {
                 <span>Specialized ABI</span>
               </div>
               <div class="ladder-track">
-                <span style="width: 94.00%"></span>
+                <span style="width: 70.04%"></span>
               </div>
               <div class="ladder-value">542.7x</div>
+            </div>
+
+            <div class="ladder-row max">
+              <div class="ladder-label">
+                <strong>uint4 + L2 compact pipeline</strong>
+                <span>Extreme ABI</span>
+              </div>
+              <div class="ladder-track">
+                <span style="width: 40.27%"></span>
+              </div>
+              <div class="ladder-value">312.1x</div>
             </div>
 
             <div class="ladder-row max">
@@ -562,9 +595,20 @@ code {
                 <span>Extreme ABI</span>
               </div>
               <div class="ladder-track">
-                <span style="width: 48.64%"></span>
+                <span style="width: 36.70%"></span>
               </div>
-              <div class="ladder-value">280.9x</div>
+              <div class="ladder-value">284.4x</div>
+            </div>
+
+            <div class="ladder-row option">
+              <div class="ladder-label">
+                <strong>uint4 U8 producer + consumer</strong>
+                <span>Pipeline</span>
+              </div>
+              <div class="ladder-track">
+                <span style="width: 33.22%"></span>
+              </div>
+              <div class="ladder-value">257.4x</div>
             </div>
 
             <div class="ladder-row option">
@@ -573,7 +617,7 @@ code {
                 <span>Input/output ABI</span>
               </div>
               <div class="ladder-track">
-                <span style="width: 21.66%"></span>
+                <span style="width: 16.14%"></span>
               </div>
               <div class="ladder-value">125.0x</div>
             </div>
@@ -584,7 +628,7 @@ code {
                 <span>Input/output ABI</span>
               </div>
               <div class="ladder-track">
-                <span style="width: 18.30%"></span>
+                <span style="width: 13.63%"></span>
               </div>
               <div class="ladder-value">105.7x</div>
             </div>
@@ -595,53 +639,9 @@ code {
                 <span>Input/output ABI</span>
               </div>
               <div class="ladder-track">
-                <span style="width: 13.42%"></span>
+                <span style="width: 10.00%"></span>
               </div>
               <div class="ladder-value">77.5x</div>
-            </div>
-
-            <div class="ladder-row option">
-              <div class="ladder-label">
-                <strong>FP16 output</strong>
-                <span>Output ABI</span>
-              </div>
-              <div class="ladder-track">
-                <span style="width: 8.81%"></span>
-              </div>
-              <div class="ladder-value">50.9x</div>
-            </div>
-
-            <div class="ladder-row option">
-              <div class="ladder-label">
-                <strong>Compact U8 output + score pipeline</strong>
-                <span>Pipeline</span>
-              </div>
-              <div class="ladder-track">
-                <span style="width: 7.90%"></span>
-              </div>
-              <div class="ladder-value">45.6x</div>
-            </div>
-
-            <div class="ladder-row safe">
-              <div class="ladder-label">
-                <strong>Affine float default</strong>
-                <span>Drop-in-specialized</span>
-              </div>
-              <div class="ladder-track">
-                <span style="width: 7.32%"></span>
-              </div>
-              <div class="ladder-value">42.3x</div>
-            </div>
-
-            <div class="ladder-row safe">
-              <div class="ladder-label">
-                <strong>Vectorized float default</strong>
-                <span>Drop-in</span>
-              </div>
-              <div class="ladder-track">
-                <span style="width: 7.31%"></span>
-              </div>
-              <div class="ladder-value">42.2x</div>
             </div>
             </div>
   </section>
@@ -699,20 +699,40 @@ code {
     <p class="muted">Sorted by speedup vs the original client baseline. Footprint combines data moved, register pressure, and spill status so the table stays decision-oriented.</p>
     <div class="table-wrap portfolio"><table><thead><tr><th>Variant</th><th>Track</th><th>Status</th><th>Speedup</th><th>Time</th><th>Footprint</th></tr></thead><tbody><tr><td data-label="Variant">
                 <div class="variant-name">
+                  <strong>uint4 + L2 U8 in/out kernel</strong>
+                  <span>Fastest kernel-only result: vectorized compact loads/stores plus persisting compact input.</span>
+                </div>
+                </td><td data-label="Track"><span class="track max">Extreme ABI</span></td><td data-label="Status">Pass</td><td data-label="Speedup">774.9x</td><td data-label="Time">0.0169 ms</td><td data-label="Footprint"><div class="chips"><span>64 MiB data moved</span></div></td></tr><tr><td data-label="Variant">
+                <div class="variant-name">
+                  <strong>uint4-packed U8 in/out kernel</strong>
+                  <span>Processes eight compact groups per thread; faster producer without relying on L2 hints.</span>
+                </div>
+                </td><td data-label="Track"><span class="track max">Specialized ABI</span></td><td data-label="Status">Pass</td><td data-label="Speedup">764.8x</td><td data-label="Time">0.0171 ms</td><td data-label="Footprint"><div class="chips"><span>64 MiB data moved</span></div></td></tr><tr><td data-label="Variant">
+                <div class="variant-name">
                   <strong>L2-persisting U8 in/out kernel</strong>
                   <span>Fastest kernel-only result when compact input is reused and fits in persisting L2.</span>
                 </div>
-                </td><td data-label="Track"><span class="track max">Extreme ABI</span></td><td data-label="Status">Pass</td><td data-label="Speedup">577.4x</td><td data-label="Time">0.0227 ms</td><td data-label="Footprint"><div class="chips"><span>64 MiB data moved</span></div></td></tr><tr><td data-label="Variant">
+                </td><td data-label="Track"><span class="track max">Extreme ABI</span></td><td data-label="Status">Pass</td><td data-label="Speedup">583.9x</td><td data-label="Time">0.0224 ms</td><td data-label="Footprint"><div class="chips"><span>64 MiB data moved</span></div></td></tr><tr><td data-label="Variant">
                 <div class="variant-name">
                   <strong>Compact U8 input + U8 output</strong>
                   <span>Fastest kernel-only result; does not include a downstream consumer.</span>
                 </div>
                 </td><td data-label="Track"><span class="track max">Specialized ABI</span></td><td data-label="Status">Pass</td><td data-label="Speedup">542.7x</td><td data-label="Time">0.0241 ms</td><td data-label="Footprint"><div class="chips"><span>64 MiB data moved</span><span>16 registers/thread</span><span>0 spill bytes</span></div></td></tr><tr><td data-label="Variant">
                 <div class="variant-name">
+                  <strong>uint4 + L2 compact pipeline</strong>
+                  <span>Best adjacent producer-consumer path: uint4 producer plus persisting compact output.</span>
+                </div>
+                </td><td data-label="Track"><span class="track max">Extreme ABI</span></td><td data-label="Status">Pass</td><td data-label="Speedup">312.1x</td><td data-label="Time">0.0419 ms</td><td data-label="Footprint"><div class="chips"><span>160 MiB data moved</span></div></td></tr><tr><td data-label="Variant">
+                <div class="variant-name">
                   <strong>L2-resident U8 in/out pipeline</strong>
                   <span>U8 input, U8 output, and compact consumer timed together with persisting L2.</span>
                 </div>
-                </td><td data-label="Track"><span class="track max">Extreme ABI</span></td><td data-label="Status">Pass</td><td data-label="Speedup">280.9x</td><td data-label="Time">0.0466 ms</td><td data-label="Footprint"><div class="chips"><span>160 MiB data moved</span></div></td></tr><tr><td data-label="Variant">
+                </td><td data-label="Track"><span class="track max">Extreme ABI</span></td><td data-label="Status">Pass</td><td data-label="Speedup">284.4x</td><td data-label="Time">0.0460 ms</td><td data-label="Footprint"><div class="chips"><span>160 MiB data moved</span></div></td></tr><tr><td data-label="Variant">
+                <div class="variant-name">
+                  <strong>uint4 U8 producer + consumer</strong>
+                  <span>Vectorized compact producer followed by the existing compact consumer.</span>
+                </div>
+                </td><td data-label="Track"><span class="track option">Pipeline</span></td><td data-label="Status">Pass</td><td data-label="Speedup">257.4x</td><td data-label="Time">0.0508 ms</td><td data-label="Footprint"><div class="chips"><span>160 MiB data moved</span></div></td></tr><tr><td data-label="Variant">
                 <div class="variant-name">
                   <strong>Compact U8 input + FP16 output</strong>
                   <span>Best when an upstream producer can emit only the two changing values directly.</span>
@@ -766,53 +786,65 @@ code {
     <div class="l2-copy">
       <h3>When a custom ABI is worth considering</h3>
       <p>This path is aimed at latency-sensitive customers who can own the compact data contract, producer/consumer coupling, and maintenance burden. It is not the safe library default.</p>
-      <p class="muted">There are two useful combinations. First, the current best kernel-only shape can keep its compact U8 input in persisting L2; that measured 0.0227 ms, or 577.4x against the original client baseline. Second, the compact producer can write U8 x/w output and keep that output resident for an adjacent compact consumer; that producer-plus-consumer path measured 0.0466 ms, or 280.9x.</p>
+      <p class="muted">There are two useful combinations. First, the current best kernel-only shape uses uint4 loads/stores to process eight compact groups per thread, then keeps compact U8 input in persisting L2; that measured 0.0169 ms, or 774.9x against the original client baseline. Second, the uint4 compact producer can write U8 x/w output and keep that output resident for an adjacent compact consumer; that producer-plus-consumer path measured 0.0419 ms, or 312.1x.</p>
       <p class="muted">The kernel-only L2 result is the fastest measured row on this host, but it depends on compact input reuse and a working set that fits the persisting-L2 budget. On B200-class systems, very high HBM3e bandwidth narrows the cache advantage, so this tactic should be remeasured rather than assumed.</p>
       <p class="muted">The L2 path does not make the workload compute-bound. It reduces read pressure, but the compact consumer still shows a memory-path profile because it writes the score stream and moves predictable global-memory transactions.</p>
     </div>
-    <div class="fact-grid"><div class="fact"><span>Compact output footprint</span><strong>32 MiB</strong></div><div class="fact"><span>Measured L2 cache</span><strong>128 MiB</strong></div><div class="fact"><span>Persisting-L2 budget</span><strong>80 MiB</strong></div><div class="fact"><span>Kernel-only L2 result</span><strong>0.0227 ms</strong></div><div class="fact"><span>Input L2 lift</span><strong>1.6x</strong></div><div class="fact"><span>Input L2 vs thrash</span><strong>3.1x</strong></div><div class="fact"><span>Warm vs cold consumer</span><strong>2.8x</strong></div><div class="fact"><span>Persisting total lift</span><strong>1.2x</strong></div></div>
+    <div class="fact-grid"><div class="fact"><span>Compact output footprint</span><strong>32 MiB</strong></div><div class="fact"><span>Measured L2 cache</span><strong>128 MiB</strong></div><div class="fact"><span>Persisting-L2 budget</span><strong>80 MiB</strong></div><div class="fact"><span>Kernel-only L2 result</span><strong>0.0169 ms</strong></div><div class="fact"><span>L2 lift on best producer</span><strong>1.01x</strong></div><div class="fact"><span>uint4 producer lift</span><strong>1.33x</strong></div><div class="fact"><span>Scalar L2 vs thrash</span><strong>3.15x</strong></div><div class="fact"><span>Warm vs cold consumer</span><strong>2.8x</strong></div><div class="fact"><span>Persisting total lift</span><strong>1.21x</strong></div><div class="fact"><span>uint4 pipeline lift</span><strong>1.10x</strong></div></div>
     <h3 class="section-subhead">Measured latency path</h3>
     <div class="l2-bars">
             <div class="l2-bar">
               <div><strong>Producer after L2 thrash</strong><span>Current best kernel shape after cache pressure</span></div>
-              <div class="l2-track"><i style="width: 92.68%"></i></div>
-              <b>0.0704 ms</b>
+              <div class="l2-track"><i style="width: 93.05%"></i></div>
+              <b>0.0705 ms</b>
             </div>
 
             <div class="l2-bar">
               <div><strong>Producer warm</strong><span>Current best kernel shape with natural reuse</span></div>
-              <div class="l2-track"><i style="width: 49.19%"></i></div>
-              <b>0.0373 ms</b>
+              <div class="l2-track"><i style="width: 50.02%"></i></div>
+              <b>0.0379 ms</b>
             </div>
 
             <div class="l2-bar">
               <div><strong>Producer with persisting input</strong><span>Current best kernel shape plus L2 input residency</span></div>
-              <div class="l2-track"><i style="width: 29.84%"></i></div>
-              <b>0.0227 ms</b>
+              <div class="l2-track"><i style="width: 29.55%"></i></div>
+              <b>0.0224 ms</b>
+            </div>
+
+            <div class="l2-bar">
+              <div><strong>uint4 producer</strong><span>Eight compact groups per thread</span></div>
+              <div class="l2-track"><i style="width: 22.56%"></i></div>
+              <b>0.0171 ms</b>
+            </div>
+
+            <div class="l2-bar">
+              <div><strong>uint4 + L2 producer</strong><span>Best kernel-only shape</span></div>
+              <div class="l2-track"><i style="width: 22.27%"></i></div>
+              <b>0.0169 ms</b>
             </div>
 
             <div class="l2-bar">
               <div><strong>Thrashed consumer</strong><span>Cold path after a 256 MiB L2-thrashing pass</span></div>
               <div class="l2-track"><i style="width: 100.00%"></i></div>
-              <b>0.0759 ms</b>
+              <b>0.0758 ms</b>
             </div>
 
             <div class="l2-bar">
               <div><strong>Warm consumer</strong><span>Producer output is still resident</span></div>
-              <div class="l2-track"><i style="width: 35.40%"></i></div>
+              <div class="l2-track"><i style="width: 35.52%"></i></div>
               <b>0.0269 ms</b>
             </div>
 
             <div class="l2-bar">
               <div><strong>Persisting consumer</strong><span>CUDA persisting-L2 window applied</span></div>
-              <div class="l2-track"><i style="width: 30.83%"></i></div>
-              <b>0.0234 ms</b>
+              <div class="l2-track"><i style="width: 31.15%"></i></div>
+              <b>0.0236 ms</b>
             </div>
 
             <div class="l2-bar">
               <div><strong>Persisting total</strong><span>Producer plus compact consumer</span></div>
-              <div class="l2-track"><i style="width: 61.34%"></i></div>
-              <b>0.0466 ms</b>
+              <div class="l2-track"><i style="width: 60.67%"></i></div>
+              <b>0.0460 ms</b>
             </div>
             </div>
     <h3 class="section-subhead">Cache residency planning model</h3>

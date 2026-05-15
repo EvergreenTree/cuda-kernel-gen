@@ -27,8 +27,20 @@ KEY_VARIANTS = (
         "compact_u8_producer_persisting_input_experimental",
     ),
     (
+        "uint4-packed U8 in/out kernel",
+        "compact_u8_producer_uint4_experimental",
+    ),
+    (
+        "uint4 + L2 U8 in/out kernel",
+        "compact_u8_producer_uint4_persisting_input_experimental",
+    ),
+    (
         "L2-resident U8 in/out pipeline",
         "compact_u8_producer_consumer_persisting_l2_total_experimental",
+    ),
+    (
+        "uint4 + L2 compact pipeline",
+        "compact_u8_producer_uint4_consumer_persisting_l2_total_experimental",
     ),
     ("Decode U8 output to float", "decode_u8_xw_output_to_float_experimental"),
     (
@@ -126,16 +138,25 @@ def l2_variant_rows(l2_cache, baseline):
 def l2_summary_rows(l2_cache, baseline):
     variants = l2_cache.get("variants", {})
     total = variants.get("compact_u8_producer_consumer_persisting_l2_total_experimental")
+    total_uint4 = variants.get(
+        "compact_u8_producer_uint4_consumer_persisting_l2_total_experimental", {}
+    )
     producer = variants.get("compact_u8_producer_persisting_input_experimental", {})
+    producer_uint4 = variants.get(
+        "compact_u8_producer_uint4_persisting_input_experimental", {}
+    )
+    producer_uint4_warm = variants.get("compact_u8_producer_uint4_experimental", {})
     producer_warm = variants.get("compact_u8_producer_warm_l2_experimental", {})
     producer_thrashed = variants.get("compact_u8_producer_after_l2_thrash_experimental", {})
     warm = variants.get("consume_u8_after_producer_warm_l2_experimental", {})
     thrashed = variants.get("consume_u8_after_l2_thrash_experimental", {})
     no_persist_total = variants.get("compact_u8_producer_consumer_total_experimental", {})
-    if not total and not producer:
+    if not total and not producer and not producer_uint4:
         return []
 
     strict_ms = baseline.get("time_ms")
+    best_producer = producer_uint4 or producer
+    best_total = total_uint4 or total or {}
     producer_gain = (
         producer_warm.get("median_ms") / producer.get("median_ms")
         if producer_warm.get("median_ms") and producer.get("median_ms")
@@ -147,8 +168,18 @@ def l2_summary_rows(l2_cache, baseline):
         else None
     )
     producer_strict_gain = (
-        strict_ms / producer.get("median_ms")
-        if strict_ms and producer.get("median_ms")
+        strict_ms / best_producer.get("median_ms")
+        if strict_ms and best_producer.get("median_ms")
+        else None
+    )
+    uint4_gain = (
+        producer.get("median_ms") / producer_uint4.get("median_ms")
+        if producer.get("median_ms") and producer_uint4.get("median_ms")
+        else None
+    )
+    uint4_l2_gain = (
+        producer_uint4_warm.get("median_ms") / producer_uint4.get("median_ms")
+        if producer_uint4_warm.get("median_ms") and producer_uint4.get("median_ms")
         else None
     )
     warm_gain = (
@@ -161,13 +192,22 @@ def l2_summary_rows(l2_cache, baseline):
         if no_persist_total.get("median_ms") and total.get("median_ms")
         else None
     )
-    strict_gain = strict_ms / total.get("median_ms") if strict_ms and total.get("median_ms") else None
+    strict_gain = (
+        strict_ms / best_total.get("median_ms")
+        if strict_ms and best_total.get("median_ms")
+        else None
+    )
     return [
-        ["Persisting U8 in/out kernel", fmt(producer.get("median_ms"), 4, " ms")],
+        ["Best U8 in/out kernel", fmt(best_producer.get("median_ms"), 4, " ms")],
         ["Kernel-only speedup vs strict baseline", fmt(producer_strict_gain, 1, "x")],
-        ["Input L2 lift vs warm producer", fmt(producer_gain, 2, "x")],
-        ["Input L2 lift vs thrashed producer", fmt(producer_thrash_gain, 2, "x")],
-        ["Persisting producer + consumer", fmt(total.get("median_ms"), 4, " ms")],
+        ["Scalar input L2 lift vs warm producer", fmt(producer_gain, 2, "x")],
+        [
+            "Scalar input L2 lift vs thrashed producer",
+            fmt(producer_thrash_gain, 2, "x"),
+        ],
+        ["uint4 lift over scalar L2 producer", fmt(uint4_gain, 2, "x")],
+        ["L2 lift on uint4 producer", fmt(uint4_l2_gain, 2, "x")],
+        ["Best producer + consumer", fmt(best_total.get("median_ms"), 4, " ms")],
         ["Pipeline speedup vs strict baseline", fmt(strict_gain, 1, "x")],
         ["Warm consumer vs thrashed consumer", fmt(warm_gain, 1, "x")],
         ["Persisting total lift", fmt(persist_gain, 2, "x")],
@@ -291,12 +331,12 @@ def main():
             else "No L2 residency result was found. Run `make l2-report` for this report directory."
         ),
         "",
-        "The kernel-only L2 row combines the current U8 input + U8 output "
-        "winner with persisting L2 on compact input. The adjacent pipeline row "
-        "uses persisting L2 on compact output for the downstream consumer. Both "
-        "are custom-ABI options, remain memory-path limited rather than "
-        "compute-bound, and should be remeasured on B200-class systems where "
-        "HBM3e bandwidth narrows the cache advantage.",
+        "The kernel-only L2 row combines uint4-packed U8 input/output with "
+        "persisting L2 on compact input. The adjacent pipeline row uses the "
+        "uint4 producer plus persisting L2 on compact output for the downstream "
+        "consumer. Both are custom-ABI options, remain memory-path limited "
+        "rather than compute-bound, and should be remeasured on B200-class "
+        "systems where HBM3e bandwidth narrows the cache advantage.",
         "",
         table(
             [

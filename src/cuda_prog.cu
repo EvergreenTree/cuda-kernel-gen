@@ -3315,6 +3315,77 @@ static int compact_grid(int groups) {
   return grid > min_grid ? min_grid : grid;
 }
 
+static __device__ __forceinline__ uchar2 transform_compact_u8_pair(
+    uchar2 packed) {
+  float x_in = unpack_fixed_u8_xw(packed.x);
+  float w_in = unpack_fixed_u8_xw(packed.y);
+  float x = affine(fixed_range_s_unchecked(x_in), 8.08435372f,
+                   0.0109435349f);
+  float w = affine(fixed_range_s_unchecked(w_in), 7.04225693f,
+                   0.135612134f);
+  return make_uchar2(pack_range_u8(x, OUT_X_MIN, OUT_X_MAX),
+                     pack_range_u8(w, OUT_W_MIN, OUT_W_MAX));
+}
+
+static __device__ __forceinline__ unsigned int transform_compact_u8_word(
+    unsigned int word) {
+  uchar2 in0 = make_uchar2((unsigned char)(word & 0xffu),
+                           (unsigned char)((word >> 8) & 0xffu));
+  uchar2 in1 = make_uchar2((unsigned char)((word >> 16) & 0xffu),
+                           (unsigned char)((word >> 24) & 0xffu));
+  uchar2 out0 = transform_compact_u8_pair(in0);
+  uchar2 out1 = transform_compact_u8_pair(in1);
+  return (unsigned int)out0.x | ((unsigned int)out0.y << 8) |
+         ((unsigned int)out1.x << 16) | ((unsigned int)out1.y << 24);
+}
+
+__global__ void kernel_compact_u8_xw_affine_u8_xw_output_uint4(
+    const uint4 *__restrict__ in_xw4, uint4 *__restrict__ out_xw4, int vecs) {
+  int vec = blockIdx.x * blockDim.x + threadIdx.x;
+  int stride = blockDim.x * gridDim.x;
+
+  for (; vec < vecs; vec += stride) {
+    uint4 packed = in_xw4[vec];
+    uint4 result;
+    result.x = transform_compact_u8_word(packed.x);
+    result.y = transform_compact_u8_word(packed.y);
+    result.z = transform_compact_u8_word(packed.z);
+    result.w = transform_compact_u8_word(packed.w);
+    out_xw4[vec] = result;
+  }
+}
+
+static __device__ __forceinline__ void consume_compact_u8_word(
+    unsigned int word, float *out_scores, int base) {
+  unsigned int x0 = word & 0xffu;
+  unsigned int w0 = (word >> 8) & 0xffu;
+  unsigned int x1 = (word >> 16) & 0xffu;
+  unsigned int w1 = (word >> 24) & 0xffu;
+  float fx0 = unpack_range_u8((unsigned char)x0, OUT_X_MIN, OUT_X_MAX);
+  float fw0 = unpack_range_u8((unsigned char)w0, OUT_W_MIN, OUT_W_MAX);
+  float fx1 = unpack_range_u8((unsigned char)x1, OUT_X_MIN, OUT_X_MAX);
+  float fw1 = unpack_range_u8((unsigned char)w1, OUT_W_MIN, OUT_W_MAX);
+  out_scores[base] = downstream_score(fx0, OUT_Y_CONST, OUT_Z_CONST, fw0);
+  out_scores[base + 1] =
+      downstream_score(fx1, OUT_Y_CONST, OUT_Z_CONST, fw1);
+}
+
+__global__ void kernel_consume_u8_xw_output_uint4(
+    const uint4 *__restrict__ in_xw4, float *__restrict__ out_scores,
+    int vecs) {
+  int vec = blockIdx.x * blockDim.x + threadIdx.x;
+  int stride = blockDim.x * gridDim.x;
+
+  for (; vec < vecs; vec += stride) {
+    uint4 packed = in_xw4[vec];
+    int base = vec << 3;
+    consume_compact_u8_word(packed.x, out_scores, base);
+    consume_compact_u8_word(packed.y, out_scores, base + 2);
+    consume_compact_u8_word(packed.z, out_scores, base + 4);
+    consume_compact_u8_word(packed.w, out_scores, base + 6);
+  }
+}
+
 static void launch_compact_u8_producer_stream(const uchar2 *d_xw,
                                               uchar2 *d_out, int groups,
                                               cudaStream_t stream) {
@@ -3323,11 +3394,29 @@ static void launch_compact_u8_producer_stream(const uchar2 *d_xw,
       d_xw, d_out, groups);
 }
 
+static void launch_compact_u8_producer_uint4_stream(const uchar2 *d_xw,
+                                                    uchar2 *d_out, int vecs,
+                                                    cudaStream_t stream) {
+  const uint4 *in4 = (const uint4 *)d_xw;
+  uint4 *out4 = (uint4 *)d_out;
+  kernel_compact_u8_xw_affine_u8_xw_output_uint4<<<compact_grid(vecs),
+                                                   THREADS_PER_BLOCK, 0,
+                                                   stream>>>(in4, out4, vecs);
+}
+
 static void launch_compact_u8_consumer_stream(const uchar2 *d_out,
                                               float *d_scores, int groups,
                                               cudaStream_t stream) {
   kernel_consume_u8_xw_output<<<compact_grid(groups), THREADS_PER_BLOCK, 0,
                                 stream>>>(d_out, d_scores, groups);
+}
+
+static void launch_compact_u8_consumer_uint4_stream(const uchar2 *d_out,
+                                                    float *d_scores, int vecs,
+                                                    cudaStream_t stream) {
+  const uint4 *in4 = (const uint4 *)d_out;
+  kernel_consume_u8_xw_output_uint4<<<compact_grid(vecs), THREADS_PER_BLOCK, 0,
+                                      stream>>>(in4, d_scores, vecs);
 }
 
 static void launch_l2_thrash(uint4 *d_thrash, int words, cudaStream_t stream) {
@@ -3384,12 +3473,14 @@ static bool verify_l2_scores(float *d_scores, float *h_scores, float *h_gold,
 }
 
 static L2Timing benchmark_l2_producer(bool thrash_before_producer,
-                                      bool persist_input, const uchar2 *d_xw,
-                                      uchar2 *d_out, float *d_scores,
-                                      uint4 *d_thrash, int thrash_words,
-                                      float *h_scores, float *h_gold, int dimx,
-                                      int dimy, int groups, int score_nbytes,
-                                      int nreps, cudaStream_t stream,
+                                      bool persist_input, bool use_uint4,
+                                      const uchar2 *d_xw, uchar2 *d_out,
+                                      float *d_scores, uint4 *d_thrash,
+                                      int thrash_words, float *h_scores,
+                                      float *h_gold, int dimx, int dimy,
+                                      int groups, int vecs,
+                                      int score_nbytes, int nreps,
+                                      cudaStream_t stream,
                                       size_t *set_aside,
                                       size_t *window_bytes) {
   cudaEvent_t start, stop;
@@ -3407,7 +3498,11 @@ static L2Timing benchmark_l2_producer(bool thrash_before_producer,
       launch_l2_thrash(d_thrash, thrash_words, stream);
     }
     CUDA_CHECK(cudaEventRecord(start, stream));
-    launch_compact_u8_producer_stream(d_xw, d_out, groups, stream);
+    if (use_uint4) {
+      launch_compact_u8_producer_uint4_stream(d_xw, d_out, vecs, stream);
+    } else {
+      launch_compact_u8_producer_stream(d_xw, d_out, groups, stream);
+    }
     CUDA_CHECK(cudaEventRecord(stop, stream));
     CUDA_CHECK(cudaEventSynchronize(stop));
     CUDA_CHECK(cudaGetLastError());
@@ -3433,12 +3528,14 @@ static L2Timing benchmark_l2_producer(bool thrash_before_producer,
 }
 
 static L2Timing benchmark_l2_consumer(bool thrash_before_consumer,
-                                      bool use_persisting, const uchar2 *d_xw,
-                                      uchar2 *d_out, float *d_scores,
-                                      uint4 *d_thrash, int thrash_words,
-                                      float *h_scores, float *h_gold, int dimx,
-                                      int dimy, int groups, int score_nbytes,
-                                      int nreps, cudaStream_t stream,
+                                      bool use_persisting, bool use_uint4,
+                                      const uchar2 *d_xw, uchar2 *d_out,
+                                      float *d_scores, uint4 *d_thrash,
+                                      int thrash_words, float *h_scores,
+                                      float *h_gold, int dimx, int dimy,
+                                      int groups, int vecs,
+                                      int score_nbytes, int nreps,
+                                      cudaStream_t stream,
                                       size_t *set_aside,
                                       size_t *window_bytes) {
   cudaEvent_t start, stop;
@@ -3457,7 +3554,11 @@ static L2Timing benchmark_l2_consumer(bool thrash_before_consumer,
       launch_l2_thrash(d_thrash, thrash_words, stream);
     }
     CUDA_CHECK(cudaEventRecord(start, stream));
-    launch_compact_u8_consumer_stream(d_out, d_scores, groups, stream);
+    if (use_uint4) {
+      launch_compact_u8_consumer_uint4_stream(d_out, d_scores, vecs, stream);
+    } else {
+      launch_compact_u8_consumer_stream(d_out, d_scores, groups, stream);
+    }
     CUDA_CHECK(cudaEventRecord(stop, stream));
     CUDA_CHECK(cudaEventSynchronize(stop));
     CUDA_CHECK(cudaGetLastError());
@@ -3480,12 +3581,13 @@ static L2Timing benchmark_l2_consumer(bool thrash_before_consumer,
   return result;
 }
 
-static L2Timing benchmark_l2_total(bool use_persisting, const uchar2 *d_xw,
+static L2Timing benchmark_l2_total(bool use_persisting, bool producer_uint4,
+                                   bool consumer_uint4, const uchar2 *d_xw,
                                    uchar2 *d_out, float *d_scores,
                                    float *h_scores, float *h_gold, int dimx,
-                                   int dimy, int groups, int score_nbytes,
-                                   int nreps, cudaStream_t stream,
-                                   size_t *set_aside,
+                                   int dimy, int groups, int vecs,
+                                   int score_nbytes, int nreps,
+                                   cudaStream_t stream, size_t *set_aside,
                                    size_t *window_bytes) {
   cudaEvent_t start, stop;
   float total_ms = 0.0f;
@@ -3499,8 +3601,16 @@ static L2Timing benchmark_l2_total(bool use_persisting, const uchar2 *d_xw,
 
   for (int rep = 0; rep < nreps; ++rep) {
     CUDA_CHECK(cudaEventRecord(start, stream));
-    launch_compact_u8_producer_stream(d_xw, d_out, groups, stream);
-    launch_compact_u8_consumer_stream(d_out, d_scores, groups, stream);
+    if (producer_uint4) {
+      launch_compact_u8_producer_uint4_stream(d_xw, d_out, vecs, stream);
+    } else {
+      launch_compact_u8_producer_stream(d_xw, d_out, groups, stream);
+    }
+    if (consumer_uint4) {
+      launch_compact_u8_consumer_uint4_stream(d_out, d_scores, vecs, stream);
+    } else {
+      launch_compact_u8_consumer_stream(d_out, d_scores, groups, stream);
+    }
     CUDA_CHECK(cudaEventRecord(stop, stream));
     CUDA_CHECK(cudaEventSynchronize(stop));
     CUDA_CHECK(cudaGetLastError());
@@ -3536,6 +3646,13 @@ int main() {
   int nreps = NREPS;
   int total = dimx * dimy;
   int groups = total / 4;
+  if (groups % 8 != 0) {
+    fprintf(stderr,
+            "L2 uint4 experiment requires the compact group count to be a "
+            "multiple of 8.\n");
+    return EXIT_FAILURE;
+  }
+  int vecs = groups / 8;
   int input_nbytes = total * (int)sizeof(float);
   int compact_u8_nbytes = groups * (int)sizeof(uchar2);
   int score_nbytes = groups * (int)sizeof(float);
@@ -3585,72 +3702,114 @@ int main() {
 
   printf("variant,correct,time_ms,logical_bytes,persisting_l2\n");
   L2Timing producer_warm = benchmark_l2_producer(
-      false, false, d_xw, d_out, d_scores, d_thrash, thrash_words, h_scores,
-      h_gold, dimx, dimy, groups, score_nbytes, nreps, stream, &set_aside,
-      &window_bytes);
+      false, false, false, d_xw, d_out, d_scores, d_thrash, thrash_words,
+      h_scores, h_gold, dimx, dimy, groups, vecs, score_nbytes, nreps, stream,
+      &set_aside, &window_bytes);
   print_l2_row("compact_u8_producer_warm_l2_experimental", &producer_warm,
                producer_logical_bytes);
 
   L2Timing producer_cold = benchmark_l2_producer(
-      true, false, d_xw, d_out, d_scores, d_thrash, thrash_words, h_scores,
-      h_gold, dimx, dimy, groups, score_nbytes, nreps, stream, &set_aside,
-      &window_bytes);
+      true, false, false, d_xw, d_out, d_scores, d_thrash, thrash_words,
+      h_scores, h_gold, dimx, dimy, groups, vecs, score_nbytes, nreps, stream,
+      &set_aside, &window_bytes);
   print_l2_row("compact_u8_producer_after_l2_thrash_experimental",
                &producer_cold, producer_logical_bytes);
 
   L2Timing producer_persist = benchmark_l2_producer(
-      false, true, d_xw, d_out, d_scores, d_thrash, thrash_words, h_scores,
-      h_gold, dimx, dimy, groups, score_nbytes, nreps, stream, &set_aside,
-      &window_bytes);
+      false, true, false, d_xw, d_out, d_scores, d_thrash, thrash_words,
+      h_scores, h_gold, dimx, dimy, groups, vecs, score_nbytes, nreps, stream,
+      &set_aside, &window_bytes);
   print_l2_row("compact_u8_producer_persisting_input_experimental",
                &producer_persist, producer_logical_bytes);
 
   L2Timing producer_persist_thrash = benchmark_l2_producer(
-      true, true, d_xw, d_out, d_scores, d_thrash, thrash_words, h_scores,
-      h_gold, dimx, dimy, groups, score_nbytes, nreps, stream, &set_aside,
-      &window_bytes);
+      true, true, false, d_xw, d_out, d_scores, d_thrash, thrash_words,
+      h_scores, h_gold, dimx, dimy, groups, vecs, score_nbytes, nreps, stream,
+      &set_aside, &window_bytes);
   print_l2_row("compact_u8_producer_persisting_input_after_l2_thrash_experimental",
                &producer_persist_thrash, producer_logical_bytes);
 
+  L2Timing producer_uint4 = benchmark_l2_producer(
+      false, false, true, d_xw, d_out, d_scores, d_thrash, thrash_words,
+      h_scores, h_gold, dimx, dimy, groups, vecs, score_nbytes, nreps, stream,
+      &set_aside, &window_bytes);
+  print_l2_row("compact_u8_producer_uint4_experimental", &producer_uint4,
+               producer_logical_bytes);
+
+  L2Timing producer_uint4_persist = benchmark_l2_producer(
+      false, true, true, d_xw, d_out, d_scores, d_thrash, thrash_words,
+      h_scores, h_gold, dimx, dimy, groups, vecs, score_nbytes, nreps, stream,
+      &set_aside, &window_bytes);
+  print_l2_row("compact_u8_producer_uint4_persisting_input_experimental",
+               &producer_uint4_persist, producer_logical_bytes);
+
   L2Timing warm = benchmark_l2_consumer(
-      false, false, d_xw, d_out, d_scores, d_thrash, thrash_words, h_scores,
-      h_gold, dimx, dimy, groups, score_nbytes, nreps, stream, &set_aside,
-      &window_bytes);
+      false, false, false, d_xw, d_out, d_scores, d_thrash, thrash_words,
+      h_scores, h_gold, dimx, dimy, groups, vecs, score_nbytes, nreps, stream,
+      &set_aside, &window_bytes);
   print_l2_row("consume_u8_after_producer_warm_l2_experimental", &warm,
                consumer_logical_bytes);
 
   L2Timing cold = benchmark_l2_consumer(
-      true, false, d_xw, d_out, d_scores, d_thrash, thrash_words, h_scores,
-      h_gold, dimx, dimy, groups, score_nbytes, nreps, stream, &set_aside,
-      &window_bytes);
+      true, false, false, d_xw, d_out, d_scores, d_thrash, thrash_words,
+      h_scores, h_gold, dimx, dimy, groups, vecs, score_nbytes, nreps, stream,
+      &set_aside, &window_bytes);
   print_l2_row("consume_u8_after_l2_thrash_experimental", &cold,
                consumer_logical_bytes);
 
   L2Timing persist = benchmark_l2_consumer(
-      false, true, d_xw, d_out, d_scores, d_thrash, thrash_words, h_scores,
-      h_gold, dimx, dimy, groups, score_nbytes, nreps, stream, &set_aside,
-      &window_bytes);
+      false, true, false, d_xw, d_out, d_scores, d_thrash, thrash_words,
+      h_scores, h_gold, dimx, dimy, groups, vecs, score_nbytes, nreps, stream,
+      &set_aside, &window_bytes);
   print_l2_row("consume_u8_after_persisting_l2_experimental", &persist,
                consumer_logical_bytes);
 
   L2Timing persist_thrash = benchmark_l2_consumer(
-      true, true, d_xw, d_out, d_scores, d_thrash, thrash_words, h_scores,
-      h_gold, dimx, dimy, groups, score_nbytes, nreps, stream, &set_aside,
-      &window_bytes);
+      true, true, false, d_xw, d_out, d_scores, d_thrash, thrash_words,
+      h_scores, h_gold, dimx, dimy, groups, vecs, score_nbytes, nreps, stream,
+      &set_aside, &window_bytes);
   print_l2_row("consume_u8_after_persisting_l2_thrash_experimental",
                &persist_thrash, consumer_logical_bytes);
 
+  L2Timing consume_uint4 = benchmark_l2_consumer(
+      false, false, true, d_xw, d_out, d_scores, d_thrash, thrash_words,
+      h_scores, h_gold, dimx, dimy, groups, vecs, score_nbytes, nreps, stream,
+      &set_aside, &window_bytes);
+  print_l2_row("consume_u8_uint4_after_producer_warm_l2_experimental",
+               &consume_uint4, consumer_logical_bytes);
+
+  L2Timing consume_uint4_persist = benchmark_l2_consumer(
+      false, true, true, d_xw, d_out, d_scores, d_thrash, thrash_words,
+      h_scores, h_gold, dimx, dimy, groups, vecs, score_nbytes, nreps, stream,
+      &set_aside, &window_bytes);
+  print_l2_row("consume_u8_uint4_after_persisting_l2_experimental",
+               &consume_uint4_persist, consumer_logical_bytes);
+
   L2Timing total_warm = benchmark_l2_total(
-      false, d_xw, d_out, d_scores, h_scores, h_gold, dimx, dimy, groups,
-      score_nbytes, nreps, stream, &set_aside, &window_bytes);
+      false, false, false, d_xw, d_out, d_scores, h_scores, h_gold, dimx,
+      dimy, groups, vecs, score_nbytes, nreps, stream, &set_aside,
+      &window_bytes);
   print_l2_row("compact_u8_producer_consumer_total_experimental", &total_warm,
                total_logical_bytes);
 
   L2Timing total_persist = benchmark_l2_total(
-      true, d_xw, d_out, d_scores, h_scores, h_gold, dimx, dimy, groups,
-      score_nbytes, nreps, stream, &set_aside, &window_bytes);
+      true, false, false, d_xw, d_out, d_scores, h_scores, h_gold, dimx, dimy,
+      groups, vecs, score_nbytes, nreps, stream, &set_aside, &window_bytes);
   print_l2_row("compact_u8_producer_consumer_persisting_l2_total_experimental",
                &total_persist, total_logical_bytes);
+
+  L2Timing total_uint4 = benchmark_l2_total(
+      false, true, false, d_xw, d_out, d_scores, h_scores, h_gold, dimx, dimy,
+      groups, vecs, score_nbytes, nreps, stream, &set_aside, &window_bytes);
+  print_l2_row("compact_u8_producer_uint4_consumer_total_experimental",
+               &total_uint4, total_logical_bytes);
+
+  L2Timing total_uint4_persist = benchmark_l2_total(
+      true, true, false, d_xw, d_out, d_scores, h_scores, h_gold, dimx, dimy,
+      groups, vecs, score_nbytes, nreps, stream, &set_aside, &window_bytes);
+  print_l2_row(
+      "compact_u8_producer_uint4_consumer_persisting_l2_total_experimental",
+      &total_uint4_persist, total_logical_bytes);
 
   printf("l2_config,set_aside_bytes,%zu\n", set_aside);
   printf("l2_config,window_bytes,%zu\n", window_bytes);
@@ -3668,8 +3827,13 @@ int main() {
   CUDA_CHECK(cudaDeviceReset());
 
   bool all_pass = warm.correct && cold.correct && persist.correct &&
+                  producer_warm.correct && producer_cold.correct &&
+                  producer_persist.correct && producer_persist_thrash.correct &&
+                  producer_uint4.correct && producer_uint4_persist.correct &&
+                  consume_uint4.correct && consume_uint4_persist.correct &&
                   persist_thrash.correct && total_warm.correct &&
-                  total_persist.correct;
+                  total_persist.correct && total_uint4.correct &&
+                  total_uint4_persist.correct;
   return all_pass ? EXIT_SUCCESS : EXIT_FAILURE;
 }
 

@@ -264,30 +264,31 @@ probes, not acceptable winners.
 
 | Build / variant | ABI / role | Correct | Time per launch | Speedup |
 | --- | --- | --- | ---: | ---: |
-| Original problem definition | float in/out | yes | 13.21 ms | 1.0x |
-| Original row-stride ablation | float in/out | yes | 5.67 ms | 2.3x |
-| Scalar coalesced ablation | float in/out | yes | 0.51 ms | 25.9x |
-| Vectorized default | float in/out | yes | 0.31 ms | 42.6x |
-| Fixed-range polynomial / affine family | float in/out | yes | 0.309-0.310 ms | 42.6x |
-| FP16-output affine family | float in, half out | yes | 0.257 ms | 51.4x |
-| Compact `x/w` input + FP16 output | compact float2 in, half out | yes | 0.169 ms | 78.2x |
-| Compact U16 `x/w` input + FP16 output | compact ushort2 in, half out | yes | 0.124 ms | 106.5x |
-| Compact U8 `x/w` input + FP16 output | compact uchar2 in, half out | yes | 0.105 ms | 125.8x |
-| Compact U8 `x/w` input + U8 `x/w` output | custom compact in/out | yes | 0.025 ms | 528.4x |
-| Compact U8 input + U8 output with persisting input L2 | custom compact in/out, reused compact input | yes | 0.023 ms | 583.1x |
-| Compact U8 input + U8 output + compact consumer with persisting L2 | custom compact in/out + adjacent consumer | yes | 0.047 ms | 283.6x |
-| Decode compact U8 output to float | custom U8 in, float out | yes | 0.197 ms | 67.1x |
+| Original problem definition | float in/out | yes | 13.08 ms | 1.0x |
+| Original row-stride ablation | float in/out | yes | 6.59 ms | 2.0x |
+| Scalar coalesced ablation | float in/out | yes | 0.510 ms | 25.7x |
+| Vectorized default | float in/out | yes | 0.310 ms | 42.2x |
+| Fixed-range polynomial / affine family | float in/out | yes | 0.309-0.311 ms | 42.2x |
+| FP16-output affine family | float in, half out | yes | 0.257 ms | 50.9x |
+| Compact `x/w` input + FP16 output | compact float2 in, half out | yes | 0.169 ms | 77.5x |
+| Compact U16 `x/w` input + FP16 output | compact ushort2 in, half out | yes | 0.124 ms | 105.7x |
+| Compact U8 `x/w` input + FP16 output | compact uchar2 in, half out | yes | 0.105 ms | 125.0x |
+| Compact U8 `x/w` input + U8 `x/w` output | custom compact in/out | yes | 0.024 ms | 542.7x |
+| `uint4` compact U8 input + U8 output | custom compact in/out, eight groups/thread | yes | 0.017 ms | 764.8x |
+| `uint4` compact U8 input + U8 output with persisting input L2 | custom compact in/out, reused compact input | yes | 0.017 ms | 774.9x |
+| `uint4` compact U8 producer + compact consumer with persisting L2 | custom compact in/out + adjacent consumer | yes | 0.042 ms | 312.1x |
+| Decode compact U8 output to float | custom U8 in, float out | yes | 0.197 ms | 66.5x |
 | Downstream projection from float output | float4 in, score out | yes | 0.213 ms | 62.0x |
-| Downstream projection from compact U8 output | custom U8 in, score out | yes | 0.027 ms | 489.3x |
-| GPU pack + compact `x/w` pipeline | float in, half out | yes | 0.445 ms | 29.7x |
-| GPU pack + compact U8 `x/w` pipeline | float in, half out | yes | 0.310 ms | 42.6x |
-| GPU pack + compact U8 in/out pipeline | float in, custom U8 out | yes | 0.250 ms | 52.8x |
-| GPU pack + compact U8 in/out + float decode | float in/out via custom path | yes | 0.436 ms | 30.3x |
-| Float output + downstream projection pipeline | float in/out + score | yes | 0.579 ms | 22.8x |
-| GPU pack + compact U8 in/out + compact projection | float in, custom U8 + score | yes | 0.287 ms | 46.0x |
-| Compact FP16 `x/w` input boundary | compact half2 in, half out | expected no | 0.121 ms | 109.2x |
-| Compact U4 `x/w` input boundary | packed nibbles in, half out | expected no | 0.100 ms | 132.1x |
-| BF16-output affine boundary | float in, BF16 out | expected no | 0.257 ms | 51.4x |
+| Downstream projection from compact U8 output | custom U8 in, score out | yes | 0.026 ms | 493.6x |
+| GPU pack + compact `x/w` pipeline | float in, half out | yes | 0.445 ms | 29.4x |
+| GPU pack + compact U8 `x/w` pipeline | float in, half out | yes | 0.310 ms | 42.2x |
+| GPU pack + compact U8 in/out pipeline | float in, custom U8 out | yes | 0.250 ms | 52.3x |
+| GPU pack + compact U8 in/out + float decode | float in/out via custom path | yes | 0.436 ms | 30.0x |
+| Float output + downstream projection pipeline | float in/out + score | yes | 0.579 ms | 22.6x |
+| GPU pack + compact U8 in/out + compact projection | float in, custom U8 + score | yes | 0.287 ms | 45.6x |
+| Compact FP16 `x/w` input boundary | compact half2 in, half out | expected no | 0.122 ms | 107.6x |
+| Compact U4 `x/w` input boundary | packed nibbles in, half out | expected no | 0.100 ms | 131.2x |
+| BF16-output affine boundary | float in, BF16 out | expected no | 0.257 ms | 50.9x |
 
 The durable hypotheses, profiler mechanisms, and stop/revisit decisions live in
 the Experiment Ledger below; this section is intentionally just the scoreboard.
@@ -296,12 +297,15 @@ the Experiment Ledger below; this section is intentionally just the scoreboard.
 
 The measured L2 result is an extreme-performance option, not the recommended
 default. There are two useful combinations with the current U8 input + U8 output
-winner. If the compact input is reused and fits in the persisting-L2 budget, the
-kernel-only path improves to `0.0227 ms` on this host. If the compact producer
-writes U8 `x/w` output for an adjacent compact consumer, marking that output for
-persisting L2 moves the producer-plus-consumer path from `0.0547 ms` to
-`0.0466 ms`. The compact consumer alone runs in `0.0269 ms` when the producer
-output is warm and `0.0758 ms` after an L2-thrashing pass.
+winner. First, widening each thread from one `uchar2` group to one `uint4`
+vector, eight compact groups per thread, improves the kernel-only producer to
+`0.0171 ms`; adding persisting L2 on the compact input measures `0.0169 ms`.
+Second, if the compact producer writes U8 `x/w` output for an adjacent compact
+consumer, using the `uint4` producer and marking that output for persisting L2
+moves the producer-plus-consumer path to `0.0419 ms`, versus `0.0460 ms` with
+the scalar-per-group producer and persisting L2. The attempted `uint4` consumer
+is not a keeper: it measured about `0.132 ms` because each thread takes on too
+much scalar unpack and score-store work.
 
 This is valuable for some customers seeking extreme latency, including HFT-like
 pipelines, but it is a trade-off: the product has to own a custom compact ABI,
@@ -349,6 +353,33 @@ For a `256 MiB` working set, such as a 16-bit output path:
 | B300 | 2 | ~270 MB | Tight but workable; verify L2 benefit on target hardware. |
 | H100 / H200 | 8 | ~280 MB | Impractical scale. |
 
+### Tensor Core Decision
+
+Tensor Cores are not a wanted default path for the standalone benchmark. The
+CUDA WMMA model is warp-level matrix multiply-accumulate. NVIDIA's CUDA C++
+Programming Guide describes warp matrix functions as Tensor Core paths for
+matrix problems of the form `D = A * B + C`, with matching `m`, `n`, and `k`
+matrix fragments for `mma_sync`. This benchmark is pointwise: one compact
+record produces one compact record or one score, with no shared reduction
+dimension and no two-dimensional data reuse.
+
+The practical Tensor Core path is conditional on surrounding product context:
+
+1. If an upstream or downstream stage is already a GEMM/convolution, fuse this
+   pointwise work into that operation's epilogue and let Tensor Cores serve the
+   real matrix work.
+2. If the client only wants a marketing/research Tensor Core demo, prototype a
+   padded polynomial-GEMM or lookup-GEMM separately and label it as an
+   ABI-changing approximation experiment.
+3. Do not put Tensor Core work on the default roadmap for the standalone
+   kernel. The next practical optimization is fusion that removes global stores,
+   not a contrived matrix reformulation.
+
+References: [CUDA C++ Programming Guide, Warp Matrix
+Functions](https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#warp-matrix-functions)
+and [CUTLASS GEMM API, Efficient
+Epilogue](https://docs.nvidia.com/cutlass/latest/media/docs/cpp/gemm_api.html#efficient-epilogue).
+
 ## Experiment Ledger
 
 Use this ledger before starting a new optimization pass. It records the
@@ -380,6 +411,7 @@ and the practical takeaway.
 | Decoding custom U8 output back to float can erase the win | Decode-only `0.1972 ms`; pack plus custom U8 output plus float decode `0.4356 ms` median over 3 full-size runs | Nsight on decode reports `177.344 us`, `82.98%` DRAM throughput, `34 MB` reads, `199 MB` writes, `1,048,576` L1 load sectors, and `8,388,608` L1 store sectors | Custom output is only attractive if downstream consumes compact form or decode is fused with useful work |
 | A realistic compact downstream consumer can preserve the custom-output win | Float-output projection `0.2125 ms`; compact-U8 projection `0.0274 ms`; full float pipeline plus projection `0.5789 ms`; setup-paid compact pipeline plus projection `0.2866 ms` | Nsight reports the float consumer at `211.168 us`, `92.61%` DRAM throughput, `268 MB` reads, and `8,388,608` L1 load sectors; compact consumer at `36.640 us`, `80.3%` DRAM throughput, `34 MB` reads, and `1,048,576` L1 load sectors | Custom U8 output is viable only when the next stage consumes compact x/w directly; this is the current best measured end-to-end specialized path |
 | Compact U8 input/output can benefit from L2 residency | Kernel-only producer with persisting compact input `0.0227 ms`; producer after a `256 MiB` L2-thrashing pass `0.0704 ms`; consumer after producer `0.0269 ms`; persisting-L2 producer+consumer total `0.0466 ms` versus `0.0547 ms` without it | Blackwell reports `128 MiB` L2 and `80 MiB` persisting set-aside; compact input/output are each `32 MiB`, so either side fits in the persisting window | Real lever for compact producer-consumer pipelines and HFT-like latency work, but only when custom ABI ownership, data reuse, and maintenance cost are acceptable; remeasure on B200-class HBM3e systems |
+| Wider per-thread U8 producer packing can improve the fastest compact kernel | `uint4` producer `0.0171 ms`; `uint4` producer plus persisting compact input `0.0169 ms`; `uint4` producer plus existing compact consumer and persisting output `0.0419 ms`; attempted `uint4` compact consumer `0.1316 ms` | Nsight sectors were already coalesced at `1,048,576` load sectors and `1,048,576` store sectors; `uint4` still lowers loop/address overhead by processing eight compact groups per thread. The `uint4` producer profiled at about `80%` memory throughput, `47%` SM throughput, and `0%` tensor-pipe activity; consumer-side vectorization bloats scalar unpack and store work | Keep `uint4` for the compact producer; do not vectorize the compact consumer this way |
 | BF16 output might be cheaper enough while staying inside tolerance | `0.2570 ms`, expected failure; first checked element had `rdiff 0.001955` | BF16 has the same output byte count as FP16 here but too few mantissa bits for the benchmark tolerance | Do not use BF16 unless the tolerance relaxes or output error is judged differently downstream |
 | SASS should confirm what `tan` actually costs | Default vector SASS contains `MUFU.SIN`, `MUFU.COS`, and `MUFU.RCP` in the tangent lane | `__tanf` lowers to sin/cos/reciprocal-like work, so explicit `sincos` sharing is not free across independent lanes | Worth revisiting only if the iterative scalar path becomes the target again |
 | CUDA Graph replay can amortize launch overhead | On `64 x 64`, stream H2D+kernel replay measured `0.014572 ms`; graph replay measured `0.013954 ms` | Graph replay trims host submission overhead, but the tested end-to-end replay still includes the H2D copy and tiny kernel work | Useful only for many small launches; it is not a lever for the full-size event-timed kernel |
@@ -387,6 +419,7 @@ and the practical takeaway.
 | Profiling must cover both time and space | `make client-report` now wraps timing, Nsight, hardware capture, HTML rendering, and Markdown summary export | `summary.json` stores medians/speedups, `space.json` stores ptxas plus Nsight facts, `hardware.json` stores device/scaling facts, `index.html` visualizes the practical deltas, and `client_summary.md` provides the handoff readout | Rerun the report bundle for every serious result; do not rely on stopwatch-only comparisons |
 | Multi-GPU row partitioning should be gated by capacity or throughput need | Current host has one GPU; the current harness model is `784 MiB` device memory for `8192 x 8192` | `hardware.json` now records memory models, 85% headroom checks, and contiguous row-shard ranges from `nvidia-smi` | Do not implement a multi-GPU runner on this box; use the planner to decide when a future host justifies it |
 | Tensor Cores / MMA for polynomial evaluation might use idle units | Not implemented as default; expected to lose at the current fitted degree | The valid approximation is degree `0-1` per lane, so building or storing a Vandermonde-like matrix would add scalar work and memory traffic for a tiny GEMM | Revisit only for high-degree fits, many output functions per input, or a batched layout that amortizes basis construction |
+| Tensor Cores should be used only when real matrix structure exists | Decision: not wanted for the standalone pointwise benchmark | CUDA WMMA/Tensor Core APIs are matrix multiply-accumulate paths; this kernel has no reuse dimension or reduction dimension | If production has an adjacent GEMM/convolution, fuse this work into that epilogue; otherwise keep optimizing SFU/FMA, memory layout, L2 residency, and fusion |
 | TMA, `cp.async`, and shared-memory tiling could overlap memory | Not applicable to the current pointwise path | There is one global read and one global write with no tile reuse | Save these for a problem shape with reuse or producer-consumer tiling |
 
 ## Profiling Outputs
